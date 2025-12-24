@@ -403,7 +403,7 @@ export default function ThreePanelLayout() {
           width: '40px',
           flexShrink: 0,
           borderRight: '1px solid #2a2a2a',
-          background: '#0f0f0f',
+          background: '#0a0a0a',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -446,7 +446,7 @@ export default function ThreePanelLayout() {
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              background: '#0f0f0f',
+              background: '#0a0a0a',
               position: 'relative',
               padding: '4px'
             }}
@@ -486,18 +486,63 @@ export default function ThreePanelLayout() {
         style={{
           width: chatCollapsed
             ? (nodesCollapsed
-                ? `calc(100% - 48px - 40px)`
-                : `calc(${effectiveMiddleWidth}% - 48px)`)
+                ? `calc(100% - 40px)`
+                : `calc(100% - ${effectiveLeftWidth}% - 3px)`)
             : `${effectiveMiddleWidth}%`,
           flexShrink: 0,
-          borderRight: chatCollapsed ? 'none' : '1px solid #1a1a1a',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          background: '#0f0f0f',
-          padding: '4px'
+          background: '#0a0a0a',
+          padding: '8px',
+          paddingRight: chatCollapsed ? '8px' : '4px'
         }}
       >
+        <div style={{
+          flex: 1,
+          background: '#141414',
+          borderRadius: '8px',
+          border: '1px solid #1f1f1f',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: chatCollapsed ? '20px' : '0',
+          position: 'relative'
+        }}>
+        {/* Expand chat button - shown when collapsed */}
+        {chatCollapsed && (
+          <button
+            onClick={() => setChatCollapsed(false)}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              right: '12px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
+              border: '1px solid #1f1f1f',
+              background: 'transparent',
+              color: '#666',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              zIndex: 10
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#1a1a1a';
+              e.currentTarget.style.color = '#999';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = '#666';
+            }}
+            title="Expand Chat (⌘\)"
+          >
+            <Maximize2 size={14} />
+          </button>
+        )}
         <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
           <div style={{
             height: '100%',
@@ -523,6 +568,7 @@ export default function ThreePanelLayout() {
             />
           )}
         </div>
+        </div>
       </div>
 
       {/* Right Resize Handle */}
@@ -541,47 +587,7 @@ export default function ThreePanelLayout() {
       )}
 
       {/* Right Panel - Agents (collapsible) */}
-      {chatCollapsed ? (
-        // Collapsed rail
-        <div style={{
-          width: '48px',
-          flexShrink: 0,
-          borderLeft: '1px solid #2a2a2a',
-          background: '#0f0f0f',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          paddingTop: '12px'
-        }}>
-          <button
-            onClick={() => setChatCollapsed(false)}
-            style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '6px',
-              border: '1px solid #1f1f1f',
-              background: 'transparent',
-              color: '#666',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#1a1a1a';
-              e.currentTarget.style.color = '#999';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#666';
-            }}
-            title="Expand Chat (⌘\)"
-          >
-            <Maximize2 size={14} />
-          </button>
-        </div>
-      ) : (
+      {!chatCollapsed && (
         <div
           style={{
             width: `${effectiveRightWidth}%`,
@@ -591,15 +597,26 @@ export default function ThreePanelLayout() {
             flexDirection: 'column',
             background: '#0a0a0a',
             position: 'relative',
-            padding: '4px'
+            padding: '8px',
+            paddingLeft: '4px'
           }}
         >
-          <AgentsPanel
-            openTabsData={openTabsData}
-            activeTabId={activeNodeId}
-            onNodeClick={(nodeId) => handleNodeSelect(nodeId, false)}
-            onCollapse={() => setChatCollapsed(true)}
-          />
+          <div style={{
+            flex: 1,
+            background: '#141414',
+            borderRadius: '8px',
+            border: '1px solid #1f1f1f',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <AgentsPanel
+              openTabsData={openTabsData}
+              activeTabId={activeNodeId}
+              onNodeClick={(nodeId) => handleNodeSelect(nodeId, false)}
+              onCollapse={() => setChatCollapsed(true)}
+            />
+          </div>
         </div>
       )}
       

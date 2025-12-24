@@ -60,13 +60,14 @@ export default function InputDialog({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        background: 'rgba(0, 0, 0, 0.8)',
+        background: 'rgba(0, 0, 0, 0.85)',
         backdropFilter: 'blur(4px)',
         display: 'flex',
         alignItems: 'center',
@@ -81,30 +82,34 @@ export default function InputDialog({
       }}
     >
       <div
+        className="modal-content"
         style={{
           width: '380px',
           maxWidth: '100%',
-          background: '#050505',
-          border: '1px solid #1f1f1f',
-          borderRadius: '12px',
+          background: '#121212',
+          border: '1px solid #2a2a2a',
+          borderRadius: '8px',
           padding: '24px',
-          boxShadow: '0 25px 65px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05)'
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05)'
         }}
       >
         <div style={{ 
           fontSize: '15px', 
           fontWeight: 600, 
-          color: '#f8fafc', 
+          color: '#e5e5e5', 
           marginBottom: '12px',
-          letterSpacing: '0.02em'
+          letterSpacing: '0.01em',
+          fontFamily: "'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
         }}>
           {title}
         </div>
         <div style={{ 
           fontSize: '13px', 
-          color: '#94a3b8', 
+          color: '#a8a8a8', 
           marginBottom: '16px', 
-          lineHeight: 1.6 
+          lineHeight: 1.6,
+          wordWrap: 'break-word',
+          overflowWrap: 'break-word'
         }}>
           {message}
         </div>
@@ -118,14 +123,15 @@ export default function InputDialog({
           style={{
             width: '100%',
             padding: '10px 12px',
-            background: '#0f0f0f',
+            background: '#0a0a0a',
             border: '1px solid #2a2a2a',
-            borderRadius: '8px',
-            color: '#f8fafc',
+            borderRadius: '6px',
+            color: '#e5e5e5',
             fontSize: '13px',
             marginBottom: '24px',
             outline: 'none',
-            transition: 'border-color 0.2s'
+            transition: 'border-color 0.2s',
+            fontFamily: "'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
           }}
           onFocus={(e) => {
             e.target.style.borderColor = '#3a3a3a';

@@ -49,15 +49,32 @@ export default function TerminalInput({
     load();
   }, [helperId]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea - only resize when needed to avoid jumps
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      const lineHeight = 20; // Approximate line height
-      const newRows = Math.min(Math.max(1, Math.floor(scrollHeight / lineHeight)), 5);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    
+    const lineHeight = 24; // line-height * font-size approximately
+    const minHeight = 32;
+    const maxHeight = 120;
+    
+    // Check if content overflows current height (need to grow)
+    const needsGrow = textarea.scrollHeight > textarea.clientHeight;
+    
+    // Check if we cleared content significantly (need to shrink)
+    const lineCount = (input.match(/\n/g) || []).length + 1;
+    const estimatedHeight = Math.max(lineCount * lineHeight, minHeight);
+    const needsShrink = !input.trim() || (textarea.clientHeight > estimatedHeight + lineHeight);
+    
+    if (needsGrow || needsShrink) {
+      // Only recalculate when necessary
+      textarea.style.height = 'auto';
+      const scrollHeight = textarea.scrollHeight;
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textarea.style.height = `${newHeight}px`;
+      
+      const newRows = Math.min(Math.max(1, Math.floor(newHeight / lineHeight)), 5);
       setRows(newRows);
-      textareaRef.current.style.height = `${scrollHeight}px`;
     }
   }, [input]);
 

@@ -25,9 +25,9 @@ const MODE_CONFIG: Array<{
   {
     key: 'link',
     label: 'Link',
-    hint: 'Drop URLs for auto YouTube/PDF/Web extraction',
+    hint: 'Drop URLs for auto extraction',
     icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M10 13a5 5 0 0 0 7.54.35l2.12-2.12a5 5 0 1 0-7.07-7.07l-1.29 1.29" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M14 11a5 5 0 0 0-7.54-.35l-2.12 2.12a5 5 0 1 0 7.07 7.07l1.29-1.29" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -36,26 +36,23 @@ const MODE_CONFIG: Array<{
   {
     key: 'note',
     label: 'Note',
-    hint: 'Quick jot — no extraction, no summary',
+    hint: 'Quick note, no processing',
     icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M12 20h9" strokeLinecap="round" />
-        <path d="M12 4h9" strokeLinecap="round" />
-        <path d="M4 4h1v16H4z" />
-        <path d="M7 9h7" strokeLinecap="round" />
-        <path d="M7 13h5" strokeLinecap="round" />
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14 2v6h6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M16 13H8" strokeLinecap="round" />
+        <path d="M16 17H8" strokeLinecap="round" />
       </svg>
     )
   },
   {
     key: 'chat',
     label: 'Chat',
-    hint: 'Paste messy transcripts — store raw text + summary',
+    hint: 'Paste conversations',
     icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M21 15a2 2 0 0 1-2 2H9l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M7 8h10" strokeLinecap="round" />
-        <path d="M7 12h6" strokeLinecap="round" />
       </svg>
     )
   }
@@ -67,18 +64,13 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
   const [isExpanded, setIsExpanded] = useState(false);
   const [manualMode, setManualMode] = useState<QuickAddIntent | null>(null);
   const [autoMode, setAutoMode] = useState<QuickAddIntent>('link');
-  const [autoReason, setAutoReason] = useState<string | null>(null);
 
   const effectiveMode: QuickAddIntent = manualMode ?? autoMode;
 
   const currentPlaceholder = useMemo(() => {
-    if (effectiveMode === 'note') {
-      return 'Write a quick note — no extraction, just append to your graph';
-    }
-    if (effectiveMode === 'chat') {
-      return 'Paste any conversation (ChatGPT, Claude, etc.) and we will store raw text + summary';
-    }
-    return "Drop links, URL's, ideas or notes to add new nodes";
+    if (effectiveMode === 'note') return 'Write a quick note...';
+    if (effectiveMode === 'chat') return 'Paste conversation...';
+    return 'Paste a link or write something...';
   }, [effectiveMode]);
 
   const maxConcurrent = 5;
@@ -89,26 +81,15 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
 
   const inferChatIntent = (value: string) => {
     const trimmed = value.trim();
-    if (!trimmed) {
-      setAutoMode('link');
-      setAutoReason(null);
-      return;
-    }
-
-    if (manualMode) return;
+    if (!trimmed || manualMode) return;
 
     const newlineCount = (trimmed.match(/\n/g)?.length ?? 0);
     const looksLikeTranscript =
       newlineCount >= 2 ||
-      /You said:|ChatGPT said:|Claude said:|Assistant:|User:/i.test(trimmed) ||
-      /\b\d{1,2}:\d{2}\b/.test(trimmed);
+      /You said:|ChatGPT said:|Claude said:|Assistant:|User:/i.test(trimmed);
 
     if (looksLikeTranscript && trimmed.length > 280) {
       setAutoMode('chat');
-      setAutoReason('Detected chat transcript');
-    } else {
-      setAutoMode('link');
-      setAutoReason(null);
     }
   };
 
@@ -120,7 +101,6 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
   const handleModeClick = (mode: QuickAddIntent) => {
     setManualMode(mode);
     setAutoMode(mode);
-    setAutoReason(null);
   };
 
   const handleSubmit = async () => {
@@ -132,7 +112,7 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
       setInput('');
       setManualMode(null);
       setAutoMode('link');
-      setAutoReason(null);
+      setIsExpanded(false);
     } catch (error) {
       console.error('[QuickAddInput] Submit error:', error);
     } finally {
@@ -140,23 +120,155 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const isLinkMode = effectiveMode === 'link';
-    const shouldSubmit = isLinkMode
-      ? (e.key === 'Enter' && !e.shiftKey)
-      : (e.key === 'Enter' && (e.metaKey || e.ctrlKey));
-
-    if (shouldSubmit) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
     }
+    if (e.key === 'Escape') {
+      setIsExpanded(false);
+      setInput('');
+    }
   };
 
-  const renderInputField = () => {
-    if (effectiveMode === 'link') {
-      return (
-        <input
-          type="text"
+  // Collapsed state - visible trigger
+  if (!isExpanded) {
+    return (
+      <button
+        onClick={() => setIsExpanded(true)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+          width: '100%',
+          padding: '16px 24px',
+          background: 'transparent',
+          border: '1px solid #333',
+          borderRadius: '12px',
+          color: '#888',
+          fontSize: '12px',
+          fontWeight: 600,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = '#444';
+          e.currentTarget.style.color = '#aaa';
+          e.currentTarget.style.background = '#1a1a1a';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = '#333';
+          e.currentTarget.style.color = '#888';
+          e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        <span style={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '50%',
+          background: '#22c55e',
+          color: '#0a0a0a',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '14px',
+          fontWeight: 700
+        }}>+</span>
+        CAPTURE
+      </button>
+    );
+  }
+
+  // Expanded state
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      width: '100%',
+      background: 'transparent',
+      padding: '0',
+      animation: 'fadeIn 150ms ease-out'
+    }}>
+      {/* Mode tabs */}
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        {MODE_CONFIG.map((mode) => {
+          const isActive = effectiveMode === mode.key;
+          return (
+            <button
+              key={mode.key}
+              type="button"
+              onClick={() => handleModeClick(mode.key)}
+              title={mode.hint}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: isActive ? '1px solid #333' : '1px solid transparent',
+                background: isActive ? '#1a1a1a' : 'transparent',
+                color: isActive ? '#fff' : '#666',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#999';
+                  e.currentTarget.style.background = '#1a1a1a';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#666';
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+            >
+              <span style={{ display: 'flex', opacity: isActive ? 1 : 0.7 }}>{mode.icon}</span>
+              {mode.label}
+            </button>
+          );
+        })}
+        
+        {/* Close button */}
+        <button
+          onClick={() => {
+            setIsExpanded(false);
+            setInput('');
+          }}
+          style={{
+            marginLeft: 'auto',
+            padding: '8px',
+            background: 'transparent',
+            border: 'none',
+            color: '#666',
+            cursor: 'pointer',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'color 0.15s ease'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#999'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Input area - consistent height */}
+      <div style={{ position: 'relative' }}>
+        <textarea
           value={input}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -164,268 +276,115 @@ export default function QuickAddInput({ activeDelegations, onSubmit }: QuickAddI
           disabled={isPosting || isSoftLimited}
           autoFocus
           style={{
-            flex: 1,
-            padding: '12px 16px',
+            width: '100%',
+            minHeight: '80px',
+            maxHeight: '200px',
+            padding: '12px 14px',
             background: '#0a0a0a',
-            border: '2px solid #22c55e',
-            borderRadius: '6px',
+            border: '1px solid #1f1f1f',
+            borderRadius: '8px',
             color: '#e5e5e5',
-            fontSize: '13px',
-            fontFamily: "'JetBrains Mono', ui-monospace",
+            fontSize: '14px',
+            fontFamily: 'inherit',
             outline: 'none',
-            transition: 'all 0.15s ease',
-            boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.15)'
+            resize: 'none',
+            transition: 'border-color 0.15s ease'
           }}
           onFocus={(e) => {
-            e.currentTarget.style.borderColor = '#22c55e';
-            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.25)';
+            e.currentTarget.style.borderColor = '#333';
           }}
           onBlur={(e) => {
-            e.currentTarget.style.borderColor = '#22c55e';
-            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.15)';
+            e.currentTarget.style.borderColor = '#1f1f1f';
           }}
         />
-      );
-    }
+      </div>
 
-    return (
-      <textarea
-        value={input}
-        onChange={(e) => handleInputChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={currentPlaceholder}
-        disabled={isPosting || isSoftLimited}
-        autoFocus
-        rows={effectiveMode === 'chat' ? 6 : 4}
-        style={{
-          flex: 1,
-          padding: '12px 16px',
-          background: '#0a0a0a',
-          border: '2px solid #22c55e',
-          borderRadius: '6px',
-          color: '#e5e5e5',
-          fontSize: '13px',
-          fontFamily: "'JetBrains Mono', ui-monospace",
-          outline: 'none',
-          transition: 'all 0.15s ease',
-          resize: 'vertical',
-          minHeight: effectiveMode === 'chat' ? '150px' : '110px',
-          boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.15)'
-        }}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = '#22c55e';
-          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.25)';
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = '#22c55e';
-          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.15)';
-        }}
-      />
-    );
-  };
-
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '10px'
-    }}>
-      {!isExpanded ? (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{
-            color: '#6b6b6b',
-            fontSize: '13px',
-            fontFamily: "'JetBrains Mono', ui-monospace",
-            textAlign: 'center'
-          }}>
-            Quickly add stuff
-          </div>
-          <button
-            onClick={() => setIsExpanded(true)}
-            style={{
-              width: '48px',
-              height: '48px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: '#22c55e',
-              border: 'none',
+      {/* Footer */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '11px', color: '#525252' }}>
+          ⌘↵ to submit · esc to close
+        </span>
+        <button
+          onClick={handleSubmit}
+          disabled={!input.trim() || isPosting || isSoftLimited}
+          style={{
+            width: '36px',
+            height: '36px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0',
+            background: input.trim() && !isPosting ? '#22c55e' : '#262626',
+            border: 'none',
+            borderRadius: '50%',
+            cursor: input.trim() && !isPosting ? 'pointer' : 'not-allowed',
+            transition: 'all 0.2s ease',
+            boxShadow: input.trim() && !isPosting ? '0 0 0 0 rgba(34, 197, 94, 0)' : 'none'
+          }}
+          onMouseEnter={(e) => {
+            if (input.trim() && !isPosting) {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.3)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 0 0 0 rgba(34, 197, 94, 0)';
+          }}
+        >
+          {isPosting ? (
+            <span style={{ 
+              width: '14px', 
+              height: '14px', 
+              border: '2px solid #0a0a0a',
+              borderTopColor: 'transparent',
               borderRadius: '50%',
-              color: '#0a0a0a',
-              cursor: 'pointer',
-              transition: 'all 150ms ease',
-              fontSize: '28px',
-              fontWeight: 300,
-              lineHeight: 1
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.05)';
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(34, 197, 94, 0.4)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-            title="Add new content"
-          >
-            +
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-            {MODE_CONFIG.map((mode) => {
-              const isActive = effectiveMode === mode.key && (manualMode === mode.key || (!manualMode && autoMode === mode.key));
-              return (
-                <button
-                  key={mode.key}
-                  type="button"
-                  onClick={() => handleModeClick(mode.key)}
-                  title={mode.hint}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    borderRadius: '999px',
-                    border: `1px solid ${isActive ? '#22c55e' : '#1f1f1f'}`,
-                    background: isActive ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
-                    color: isActive ? '#22c55e' : '#9c9c9c',
-                    fontSize: '11px',
-                    fontFamily: "'JetBrains Mono', ui-monospace",
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{mode.icon}</span>
-                  {mode.label}
-                </button>
-              );
-            })}
-          </div>
-          {autoReason && !manualMode && (
-            <div style={{
-              textAlign: 'center',
-              color: '#9c9c9c',
-              fontSize: '11px',
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase'
-            }}>
-              Auto-detected chat transcript
-            </div>
+              animation: 'spin 0.8s linear infinite'
+            }} />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? '#0a0a0a' : '#525252'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5"/>
+              <path d="M5 12l7-7 7 7"/>
+            </svg>
           )}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-            {renderInputField()}
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim() || isPosting || isSoftLimited}
-              aria-label={isPosting ? 'Adding' : 'Add'}
-              title={isPosting ? 'Adding…' : 'Add (Enter)'}
-              style={{
-                width: '40px',
-                height: '40px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: input.trim() && !isPosting && !isSoftLimited ? '#22c55e' : '#22c55e',
-                border: `2px solid #22c55e`,
-                borderRadius: '50%',
-                color: input.trim() && !isPosting && !isSoftLimited ? '#0a0a0a' : '#0a0a0a',
-                cursor: input.trim() && !isPosting && !isSoftLimited ? 'pointer' : 'not-allowed',
-                transition: 'all 150ms ease',
-                opacity: input.trim() && !isPosting && !isSoftLimited ? 1 : 0.7,
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                if (input.trim() && !isPosting && !isSoftLimited) {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.4)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (input.trim() && !isPosting && !isSoftLimited) {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }
-              }}
-            >
-              {isPosting ? (
-                <span style={{ fontSize: '12px' }}>•••</span>
-              ) : (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  xmlns="http://www.w3.org/2000/svg"
-                  aria-hidden="true"
-                >
-                  <path d="M12 4l-6.5 6.5 1.42 1.42L11 8.84V20h2V8.84l4.08 3.08 1.42-1.42L12 4z"/>
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-      
+        </button>
+      </div>
+
       {/* Active processing indicator */}
       {activeCount > 0 && (
         <div style={{
-          padding: '10px 14px',
+          padding: '10px 12px',
           background: '#0a1a0a',
           border: '1px solid #1a3a1a',
-          borderRadius: '6px',
+          borderRadius: '8px',
           color: '#22c55e',
           fontSize: '11px',
-          fontFamily: "'JetBrains Mono', ui-monospace",
           display: 'flex',
           alignItems: 'center',
           gap: '8px'
         }}>
           <span style={{
-            width: '8px',
-            height: '8px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             background: '#22c55e',
             animation: 'pulse 2s ease-in-out infinite'
           }} />
-          <span>
-            {activeCount === 1 
-              ? 'Adding 1 node to your database...' 
-              : `Adding ${activeCount} nodes to your database...`}
-          </span>
+          Adding {activeCount} node{activeCount > 1 ? 's' : ''}...
         </div>
       )}
-      
-      {isSoftLimited && (
-        <div style={{
-          padding: '10px 14px',
-          background: '#1a0a00',
-          border: '1px solid #3a2a1a',
-          borderRadius: '6px',
-          color: '#ff9b5c',
-          fontSize: '11px',
-          fontFamily: "'JetBrains Mono', ui-monospace",
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
-        }}>
-          <span>⚠</span>
-          <span>Finish one of the 5 active Quick Adds before adding more.</span>
-        </div>
-      )}
-      
+
       <style jsx>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>

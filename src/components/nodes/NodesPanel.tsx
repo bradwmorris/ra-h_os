@@ -433,12 +433,12 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
       }}
       style={{
         width: '100%',
-        padding: '12px 16px', /* Increased from 10px to 12px */
-        margin: '2px 0', /* Added vertical margin for better spacing */
+        padding: '8px 16px',
+        margin: '0',
         textAlign: 'left',
         display: 'flex',
         alignItems: 'center',
-        gap: '10px',
+        gap: '8px',
         fontSize: '14px',
         fontFamily: 'inherit',
         background: selectedNodes.has(node.id) ? '#1a1a1a' : 'transparent',
@@ -460,7 +460,24 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
         }
       }}
     >
-
+      {/* Node ID Badge */}
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#22c55e',
+        color: '#0a0a0a',
+        fontSize: '9px',
+        fontWeight: 600,
+        padding: '1px 5px',
+        borderRadius: '3px',
+        flexShrink: 0,
+        fontFamily: 'monospace',
+        lineHeight: 1,
+        height: '16px'
+      }}>
+        #{node.id}
+      </span>
       
       {/* Title */}
       <span style={{ 
@@ -531,7 +548,7 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#000' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'transparent' }}>
       {/* Search Modal */}
       <SearchModal
         isOpen={showSearchModal}
@@ -571,7 +588,7 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
                   textTransform: 'uppercase',
                   letterSpacing: '0.1em',
                   borderBottom: '1px solid #1a1a1a',
-                  background: '#0a0a0a',
+                  background: 'transparent',
                   border: 'none',
                   cursor: creating ? 'not-allowed' : 'pointer',
                   textAlign: 'left',
@@ -662,7 +679,7 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
                 borderRadius: '4px', /* Added border radius */
-                background: '#0f0f0f', /* Slightly different background */
+                background: 'transparent', /* Transparent to show panel color */
                 border: 'none',
                 cursor: 'pointer',
                 textAlign: 'left',
@@ -696,11 +713,10 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
                 style={{
                   width: '100%',
                   padding: '14px 18px',
-                  fontSize: '11px',
-                  fontWeight: 700,
+                  fontSize: '14px',
+                  fontWeight: 600,
                   color: dimensionsSectionCollapsed ? '#94a3b8' : '#f8fafc',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.18em',
+                  letterSpacing: '0.01em',
                 borderBottom: '1px solid #151515',
                 borderLeft: '3px solid transparent',
                   background: dimensionsSectionCollapsed ? '#050505' : '#0e1811',
@@ -715,7 +731,7 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <Layers size={14} color={dimensionsSectionCollapsed ? '#94a3b8' : '#f8fafc'} />
-                  <span>Dimensions ({lockedDimensions.length})</span>
+                  <span>Dimensions</span>
                 </div>
                 {dimensionsSectionCollapsed ? (
                   <ChevronRight size={14} strokeWidth={2.5} color="#94a3b8" />
@@ -763,10 +779,7 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
                       ) : (
                         <Folder size={16} color="#64748b" />
                       )}
-                      <span style={{
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em'
-                      }}>
+                      <span>
                         {lockedDim.dimension}
                       </span>
                     </div>
@@ -813,11 +826,10 @@ export default function NodesPanel({ selectedNodes, onNodeSelect, onNodeCreated,
               style={{
                 width: '100%',
                 padding: '14px 18px',
-                fontSize: '11px',
-                fontWeight: 700,
+                fontSize: '14px',
+                fontWeight: 600,
                 color: allNodesSectionCollapsed ? '#94a3b8' : '#f8fafc',
-                textTransform: 'uppercase',
-                letterSpacing: '0.18em',
+                letterSpacing: '0.01em',
                 borderBottom: '1px solid #151515',
                 borderLeft: '3px solid transparent',
                 background: allNodesSectionCollapsed ? '#050505' : '#0e1811',

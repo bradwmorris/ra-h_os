@@ -176,134 +176,51 @@ export default function DimensionSearchModal({
 
   const modalContent = (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.8)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999,
-        animation: 'fadeIn 150ms ease-out'
-      }}
+      className="search-backdrop"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-label="Search dimensions"
     >
-      <div
-        ref={modalRef}
-        style={{
-          background: '#050505',
-          border: '1px solid #1f1f1f',
-          borderRadius: '12px',
-          width: '90%',
-          maxWidth: '500px',
-          boxShadow: '0 25px 65px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05)',
-          animation: 'slideIn 150ms ease-out'
-        }}
-      >
+      <div ref={modalRef} className="search-container">
         {/* Search Input */}
-        <div style={{
-          padding: '16px',
-          borderBottom: (suggestions.length > 0 || canCreateNew) ? '1px solid #1f1f1f' : 'none'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            background: '#0a0a0a',
-            padding: '12px',
-            borderRadius: '6px',
-            border: '1px solid #1f1f1f'
-          }}>
-            {/* Search Icon */}
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="#666">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-            </svg>
-            
-            {/* Input */}
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Search or create dimension..."
-              style={{
-                flex: 1,
-                background: 'none',
-                border: 'none',
-                outline: 'none',
-                color: '#fff',
-                fontSize: '14px',
-                fontFamily: 'inherit'
-              }}
-            />
-            
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#666',
-                cursor: 'pointer',
-                fontSize: '20px',
-                padding: '0 4px',
-                lineHeight: 1,
-                transition: 'color 0.2s'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
-              aria-label="Close search"
-            >
-              ×
-            </button>
+        <div className="search-input-wrapper">
+          <svg className="search-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
+          </svg>
+          
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search or create dimension..."
+            className="search-input"
+          />
+          
+          <div className="search-shortcut">
+            <kbd>esc</kbd>
           </div>
         </div>
 
-        {/* Suggestions */}
+        {/* Results */}
         {suggestions.length > 0 && (
-          <div style={{
-            maxHeight: '300px',
-            overflowY: 'auto'
-          }}>
+          <div className="search-results">
             {suggestions.map((suggestion, index) => (
               <button
                 key={suggestion.dimension}
                 onClick={() => handleSelectDimension(suggestion.dimension)}
                 onMouseEnter={() => setSelectedIndex(index)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  textAlign: 'left',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: '13px',
-                  background: index === selectedIndex ? '#252525' : 'transparent',
-                  border: 'none',
-                  borderBottom: index < suggestions.length - 1 ? '1px solid #1f1f1f' : 'none',
-                  color: '#e5e5e5',
-                  cursor: 'pointer',
-                  transition: 'background 0.1s',
-                  fontFamily: 'inherit'
-                }}
+                className={`search-result-item ${index === selectedIndex ? 'selected' : ''}`}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ 
-                    color: suggestion.isPriority ? '#22c55e' : '#e5e5e5' 
-                  }}>
-                    {suggestion.dimension}
-                  </span>
-                </div>
-                <span style={{ color: '#666', fontSize: '11px' }}>
-                  {suggestion.count}
+                <span className={`result-name ${suggestion.isPriority ? 'priority' : ''}`}>
+                  {suggestion.dimension}
                 </span>
+                <span className="result-count">{suggestion.count}</span>
+                {index === selectedIndex && (
+                  <span className="result-hint">↵</span>
+                )}
               </button>
             ))}
           </div>
@@ -311,57 +228,225 @@ export default function DimensionSearchModal({
 
         {/* Create New Option */}
         {canCreateNew && (
-          <button
-            onClick={() => handleSelectDimension(searchQuery.trim())}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              textAlign: 'left',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '13px',
-              background: selectedIndex === suggestions.length ? '#252525' : 'transparent',
-              border: 'none',
-              borderTop: suggestions.length > 0 ? '1px solid #1f1f1f' : 'none',
-              color: '#22c55e',
-              cursor: 'pointer',
-              transition: 'background 0.1s',
-              fontFamily: 'inherit'
-            }}
-            onMouseEnter={() => setSelectedIndex(suggestions.length)}
-          >
-            <span style={{ fontSize: '16px', fontWeight: 300 }}>+</span>
-            Create "{searchQuery.trim()}"
-          </button>
+          <div className="search-create">
+            <button
+              onClick={() => handleSelectDimension(searchQuery.trim())}
+              onMouseEnter={() => setSelectedIndex(suggestions.length)}
+              className={`create-button ${selectedIndex === suggestions.length ? 'selected' : ''}`}
+            >
+              <span className="create-icon">+</span>
+              Create "{searchQuery.trim()}"
+            </button>
+          </div>
         )}
 
-        {/* Keyboard Hint */}
-        <div style={{
-          padding: '12px 16px',
-          borderTop: '1px solid #1f1f1f',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '16px',
-          fontSize: '11px',
-          color: '#666'
-        }}>
-          <span>↑↓ Navigate</span>
-          <span>↵ Select</span>
-          <span>Esc Close</span>
-        </div>
+        {/* Empty state */}
+        {!searchQuery && suggestions.length === 0 && (
+          <div className="search-empty">
+            Start typing to search dimensions
+          </div>
+        )}
       </div>
 
       <style jsx>{`
-        @keyframes fadeIn {
+        .search-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.85);
+          backdrop-filter: blur(8px);
+          display: flex;
+          justify-content: center;
+          padding-top: 15vh;
+          z-index: 9999;
+          animation: backdropIn 200ms ease-out;
+        }
+        
+        .search-container {
+          width: 100%;
+          max-width: 640px;
+          max-height: 70vh;
+          animation: containerIn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .search-input-wrapper {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          background: #141414;
+          border: 1px solid #262626;
+          border-radius: 16px;
+          padding: 20px 24px;
+          box-shadow: 
+            0 0 0 1px rgba(255, 255, 255, 0.04),
+            0 24px 48px -12px rgba(0, 0, 0, 0.6);
+        }
+        
+        .search-icon {
+          width: 22px;
+          height: 22px;
+          color: #525252;
+          flex-shrink: 0;
+        }
+        
+        .search-input {
+          flex: 1;
+          background: none;
+          border: none;
+          outline: none;
+          color: #fafafa;
+          font-size: 18px;
+          font-family: inherit;
+          font-weight: 400;
+        }
+        
+        .search-input::placeholder {
+          color: #525252;
+        }
+        
+        .search-shortcut {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        
+        .search-shortcut kbd {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px 8px;
+          background: #262626;
+          border-radius: 6px;
+          font-size: 11px;
+          font-family: inherit;
+          color: #737373;
+          border: 1px solid #333;
+        }
+        
+        .search-results {
+          margin-top: 8px;
+          background: #141414;
+          border: 1px solid #262626;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 
+            0 0 0 1px rgba(255, 255, 255, 0.04),
+            0 24px 48px -12px rgba(0, 0, 0, 0.6);
+          animation: resultsIn 150ms ease-out;
+        }
+        
+        .search-result-item {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 16px 20px;
+          background: transparent;
+          border: none;
+          border-bottom: 1px solid #1f1f1f;
+          cursor: pointer;
+          transition: background 100ms ease;
+          text-align: left;
+          font-family: inherit;
+        }
+        
+        .search-result-item:last-child {
+          border-bottom: none;
+        }
+        
+        .search-result-item:hover,
+        .search-result-item.selected {
+          background: #1a1a1a;
+        }
+        
+        .result-name {
+          flex: 1;
+          color: #e5e5e5;
+          font-size: 15px;
+        }
+        
+        .result-name.priority {
+          color: #22c55e;
+        }
+        
+        .result-count {
+          color: #525252;
+          font-size: 12px;
+          font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        
+        .result-hint {
+          color: #525252;
+          font-size: 13px;
+        }
+        
+        .search-create {
+          margin-top: 8px;
+          background: #141414;
+          border: 1px solid #262626;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 
+            0 0 0 1px rgba(255, 255, 255, 0.04),
+            0 24px 48px -12px rgba(0, 0, 0, 0.6);
+        }
+        
+        .create-button {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px 20px;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          transition: background 100ms ease;
+          text-align: left;
+          font-family: inherit;
+          color: #22c55e;
+          font-size: 15px;
+        }
+        
+        .create-button:hover,
+        .create-button.selected {
+          background: #1a1a1a;
+        }
+        
+        .create-icon {
+          font-size: 18px;
+          font-weight: 300;
+        }
+        
+        .search-empty {
+          margin-top: 8px;
+          padding: 32px 24px;
+          background: #141414;
+          border: 1px solid #262626;
+          border-radius: 16px;
+          color: #525252;
+          font-size: 14px;
+          text-align: center;
+        }
+        
+        @keyframes backdropIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
         
-        @keyframes slideIn {
+        @keyframes containerIn {
           from { 
             opacity: 0;
-            transform: translateY(-20px);
+            transform: scale(0.96) translateY(-8px);
+          }
+          to { 
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+        
+        @keyframes resultsIn {
+          from { 
+            opacity: 0;
+            transform: translateY(-4px);
           }
           to { 
             opacity: 1;

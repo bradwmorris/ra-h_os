@@ -111,6 +111,7 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
     };
   }, []);
 
+
   useEffect(() => {
     const handleCreated = (event: Event) => {
       const detail = (event as CustomEvent<{ delegation: AgentDelegation }>).detail;
@@ -187,151 +188,132 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0a0a0a', position: 'relative' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'transparent', position: 'relative' }}>
       {/* Mode Header */}
       {mode === 'quickadd' ? (
         <div style={{
           padding: '20px',
-          borderBottom: '1px solid #1a1a1a',
-          background: '#0a0a0a',
+          background: 'transparent',
           display: 'flex',
           flexDirection: 'column',
-          gap: '24px',
-          justifyContent: 'space-between',
-          alignItems: 'center',
           height: '100%',
           position: 'relative'
         }}>
-          {/* Collapse button - top right */}
-          {onCollapse && (
-            <button
-              onClick={onCollapse}
-              style={{
-                position: 'absolute',
-                top: '12px',
-                left: '12px',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                border: '1px solid #1f1f1f',
-                background: 'transparent',
-                color: '#666',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-              title="Collapse chat panel (⌘\)"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#1a1a1a';
-                e.currentTarget.style.color = '#999';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#666';
-              }}
-            >
-              <Minimize2 size={14} />
-            </button>
-          )}
-          {/* Top spacer */}
-          <div style={{ flex: 1 }} />
-
-          {/* Session Section */}
-          <div style={{
-            background: 'transparent',
-            border: 'none',
-            borderRadius: '8px',
-            padding: '20px',
-            textAlign: 'center',
-            width: '100%',
-            maxWidth: '600px'
-          }}>
-            <pre style={{
-              color: '#22c55e',
-              fontSize: '13px',
-              fontFamily: "'JetBrains Mono', ui-monospace, Courier, monospace",
-              lineHeight: '1.1',
-              margin: '0 0 20px 0',
-              letterSpacing: '0',
-              fontWeight: 700,
-              textShadow: '0 0 10px rgba(139, 212, 80, 0.4)'
-            }}>{`
- ██████╗  █████╗       ██╗  ██╗
- ██╔══██╗██╔══██╗      ██║  ██║
- ██████╔╝███████║█████╗███████║
- ██╔══██╗██╔══██║╚════╝██╔══██║
- ██║  ██║██║  ██║      ██║  ██║
- ╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝
-`}</pre>
-            <button
-              onClick={() => {
-                setMode('session');
-                setRahMode('easy'); // Always start new session in easy mode
-              }}
-              style={{
-                width: 'auto',
-                padding: '14px 32px',
-                background: '#22c55e',
-                border: 'none',
-                borderRadius: '6px',
-                color: '#0a0a0a',
-                fontSize: '14px',
-                fontWeight: 600,
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                letterSpacing: '0.02em'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#2dd46d';
-                e.currentTarget.style.boxShadow = '0 4px 16px rgba(34, 197, 94, 0.4)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#22c55e';
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              Start Session
-            </button>
-          </div>
-
-          {/* Bottom spacer */}
-          <div style={{ flex: 1 }} />
-
-          {/* Divider */}
+          {/* Top Bar - just collapse button */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            width: '100%',
-            maxWidth: '600px',
-            marginBottom: '12px'
+            justifyContent: 'flex-start',
+            marginBottom: '24px'
           }}>
-            <div style={{ flex: 1, height: '1px', background: '#1a1a1a' }} />
-            <span style={{
-              color: '#6b6b6b',
-              fontSize: '12px',
-              fontWeight: 700,
-              fontFamily: "'JetBrains Mono', ui-monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
-              padding: '0 12px'
-            }}>or</span>
-            <div style={{ flex: 1, height: '1px', background: '#1a1a1a' }} />
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '6px',
+                  border: '1px solid #1f1f1f',
+                  background: 'transparent',
+                  color: '#666',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Collapse chat panel (⌘\)"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#1a1a1a';
+                  e.currentTarget.style.color = '#999';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#666';
+                }}
+              >
+                <Minimize2 size={14} />
+              </button>
+            )}
           </div>
 
-          {/* Quick Add Section */}
+          {/* Center Section - Start button centered */}
           <div style={{
-            background: 'transparent',
-            padding: '0',
-            width: '100%',
-            maxWidth: '600px',
-            marginBottom: '12px'
+            flex: 1,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
           }}>
+            <button
+              onClick={() => {
+                setMode('session');
+                setRahMode('easy');
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                padding: '0',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+              onMouseEnter={(e) => {
+                const text = e.currentTarget.querySelector('.start-text') as HTMLElement;
+                const icon = e.currentTarget.querySelector('.start-icon') as HTMLElement;
+                if (text) text.style.color = '#22c55e';
+                if (icon) {
+                  icon.style.transform = 'translateY(-3px)';
+                  icon.style.boxShadow = '0 8px 20px rgba(34, 197, 94, 0.3), 0 0 0 4px rgba(34, 197, 94, 0.1)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                const text = e.currentTarget.querySelector('.start-text') as HTMLElement;
+                const icon = e.currentTarget.querySelector('.start-icon') as HTMLElement;
+                if (text) text.style.color = '#737373';
+                if (icon) {
+                  icon.style.transform = 'translateY(0)';
+                  icon.style.boxShadow = '0 0 0 0 rgba(34, 197, 94, 0)';
+                }
+              }}
+            >
+              <span 
+                className="start-text"
+                style={{
+                  color: '#737373',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  letterSpacing: '0.15em',
+                  textTransform: 'uppercase',
+                  transition: 'color 0.2s ease'
+                }}
+              >
+                Start
+              </span>
+              <div 
+                className="start-icon"
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '50%',
+                  background: '#22c55e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: '0 0 0 0 rgba(34, 197, 94, 0)'
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5"/>
+                  <path d="M5 12l7-7 7 7"/>
+                </svg>
+              </div>
+            </button>
+          </div>
+
+          {/* Quick Add - at bottom, full width with padding */}
+          <div style={{ width: '100%', padding: '0 16px 16px 16px' }}>
             <QuickAddInput
               activeDelegations={orderedDelegations}
               onSubmit={handleQuickAddSubmit}
@@ -375,7 +357,7 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
             <Minimize2 size={14} />
           </button>
         )}
-        {/* Quick Add button - positioned at far right */}
+        {/* Capture button - positioned at far right */}
         <div style={{
           position: 'absolute',
           top: '50%',
@@ -387,29 +369,31 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
           zIndex: 20
         }}>
           <button
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('rah:switch-quickadd'));
-            }}
+            onClick={() => setMode('quickadd')}
             style={{
-              background: 'none',
-              border: 'none',
-              color: '#fff',
-              fontSize: '12px',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              transition: 'color 0.2s',
-              fontFamily: 'inherit',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
+              padding: '6px 12px',
+              background: 'transparent',
+              border: '1px solid #1f1f1f',
+              borderRadius: '6px',
+              color: '#e5e5e5',
+              fontSize: '12px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              fontFamily: 'inherit',
               textTransform: 'uppercase',
               letterSpacing: '0.05em'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#d0d0d0';
+              e.currentTarget.style.background = '#1a1a1a';
+              e.currentTarget.style.borderColor = '#2a2a2a';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.borderColor = '#1f1f1f';
             }}
           >
             <span style={{ 
@@ -419,14 +403,14 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
               width: '16px',
               height: '16px',
               borderRadius: '50%',
-              background: '#fff',
+              background: '#22c55e',
               color: '#0a0a0a',
               fontSize: '12px',
               lineHeight: 1,
-              fontWeight: 300,
+              fontWeight: 600,
               flexShrink: 0
             }}>+</span>
-            Quick Add
+            Capture
           </button>
         </div>
         
@@ -565,7 +549,7 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
           align-items: center;
           gap: 6px;
           padding: 8px 12px 0 12px;
-          background: #0a0a0a;
+          background: #101010;
           border-bottom: 1px solid #1a1a1a;
           overflow-x: auto;
           overflow-y: hidden;
@@ -577,7 +561,7 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
         }
 
         .agent-tabs::-webkit-scrollbar-track {
-          background: #0d0d0d;
+          background: #131313;
         }
 
         .agent-tabs::-webkit-scrollbar-thumb {
@@ -598,7 +582,7 @@ export default function AgentsPanel({ openTabsData, activeTabId, onNodeClick, on
         }
 
         .agent-tab-wrapper.active {
-          background: #141414;
+          background: #181818;
         }
 
         .agent-tab {
