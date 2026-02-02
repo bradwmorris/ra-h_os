@@ -6,8 +6,8 @@ const nextConfig = {
       allowedOrigins: ['localhost:3000'],
     },
   },
-  devIndicators: false,
-  
+  // devIndicators removed - use default behavior
+
   typescript: {
     ignoreBuildErrors: false,
   },

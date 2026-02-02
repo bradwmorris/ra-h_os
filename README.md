@@ -1,53 +1,77 @@
-# RA-OS
+# RA-H OS
 
-```
- ██████╗  █████╗       ██╗  ██╗
- ██╔══██╗██╔══██╗      ██║  ██║
- ██████╔╝███████║█████╗███████║
- ██╔══██╗██╔══██║╚════╝██╔══██║
- ██║  ██║██║  ██║      ██║  ██║
- ╚═╝  ╚═╝╚═╝  ╚═╝      ╚═╝  ╚═╝
-```
+A local SQLite database with a UI for storing knowledge, and an MCP server so your AI tools can read/write to it.
 
-A lightweight local knowledge graph UI with MCP server. Connect your AI coding agents to a personal knowledge base. BYO API keys, no cloud dependencies.
+**Full documentation:** [ra-h.com/docs](https://ra-h.com/docs)
 
-## What is RA-OS?
+---
 
-RA-OS is a stripped-down version of RA-H focused on being a **knowledge management backend for AI agents**. It provides:
+## What This Does
 
-- **2-panel UI** – Nodes list + focus panel for viewing/editing knowledge
-- **SQLite + sqlite-vec** – Local vector database with semantic search
-- **MCP Server** – Connect Claude Code, Cursor, or any MCP-compatible AI assistant
+1. **Stores knowledge locally** — Notes, bookmarks, ideas, research in a SQLite database on your machine
+2. **Provides a UI** — Browse, search, and organize your nodes at `localhost:3000`
+3. **Exposes an MCP server** — Claude Code, Cursor, or any MCP client can query and add to your knowledge base
 
-**What's removed:** Built-in chat agents, voice features, delegation system. RA-OS is designed for technical users who want to bring their own AI agents via MCP.
+Your data stays on your machine. Nothing is sent anywhere unless you configure an API key.
 
-## Platform Support
+---
 
-| Platform | Status |
-|----------|--------|
-| macOS (Apple Silicon) | Supported |
-| macOS (Intel) | Supported |
-| Linux | Requires manual sqlite-vec build |
-| Windows | Requires manual sqlite-vec build |
+## Requirements
 
-## Quick Start
+- **Node.js 18+** — [nodejs.org](https://nodejs.org/)
+- **macOS** — Works out of the box
+- **Linux/Windows** — Requires building sqlite-vec manually (see below)
+
+---
+
+## Install
 
 ```bash
 git clone https://github.com/bradwmorris/ra-h_os.git
 cd ra-h_os
 npm install
 npm rebuild better-sqlite3
-scripts/dev/bootstrap-local.sh
+./scripts/dev/bootstrap-local.sh
 npm run dev
 ```
 
-Open http://localhost:3000 → **Settings → API Keys** → add your OpenAI key (for embeddings).
+Open [localhost:3000](http://localhost:3000). Done.
 
-## Connecting AI Agents via MCP
+---
 
-RA-OS includes an MCP server that lets Claude Code, Cursor, and other AI assistants read/write your knowledge graph.
+## OpenAI API Key
 
-### Quick Setup (Recommended)
+**Optional but recommended.** Without a key, you can still create and organize nodes manually.
+
+With a key, you get:
+- Auto-generated descriptions when you add nodes
+- Automatic dimension/tag assignment
+- Semantic search (find similar content, not just keyword matches)
+
+**Cost:** Less than $0.10/day for heavy use. Most users spend $1-2/month.
+
+**Setup:** The app will prompt you on first launch, or go to Settings → API Keys.
+
+Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+---
+
+## Where Your Data Lives
+
+```
+~/Library/Application Support/RA-H/db/rah.sqlite   # macOS
+~/.local/share/RA-H/db/rah.sqlite                  # Linux
+%APPDATA%/RA-H/db/rah.sqlite                       # Windows
+```
+
+This is a standard SQLite file. You can:
+- Back it up by copying the file
+- Query it directly with `sqlite3` or any SQLite tool
+- Move it between machines
+
+---
+
+## Connect Claude Code (or other MCP clients)
 
 Add to your `~/.claude.json`:
 
@@ -62,102 +86,74 @@ Add to your `~/.claude.json`:
 }
 ```
 
-**That's it.** Works without RA-OS running. Requires Node.js 18+.
+Restart Claude Code. Your agent can now use these tools:
 
-### Alternative: Local Development
-
-If you're developing RA-OS and want to use the local server:
-
-```json
-{
-  "mcpServers": {
-    "ra-h": {
-      "command": "node",
-      "args": ["/path/to/ra-h_os/apps/mcp-server-standalone/index.js"]
-    }
-  }
-}
-```
-
-First install dependencies: `cd apps/mcp-server-standalone && npm install`
-
-### Available MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `rah_add_node` | Create a new knowledge node |
-| `rah_search_nodes` | Search nodes by text |
-| `rah_update_node` | Update an existing node |
-| `rah_get_nodes` | Get nodes by ID |
-| `rah_create_edge` | Connect two nodes |
+| Tool | What it does |
+|------|--------------|
+| `rah_search_nodes` | Find nodes by keyword |
+| `rah_add_node` | Create a new node |
+| `rah_get_nodes` | Fetch nodes by ID |
+| `rah_update_node` | Edit an existing node |
+| `rah_create_edge` | Link two nodes together |
 | `rah_query_edges` | Find connections |
-| `rah_list_dimensions` | List all dimensions |
-| `rah_create_dimension` | Create a tag/category |
-| `rah_update_dimension` | Update a dimension |
-| `rah_delete_dimension` | Delete a dimension |
+| `rah_list_dimensions` | List all tags/categories |
 
-### HTTP MCP Server (Real-time UI updates)
+**Example prompts for Claude Code:**
+- "Search my knowledge base for notes about React performance"
+- "Add a node about the article I just read on transformers"
+- "What nodes are connected to my 'project-ideas' dimension?"
 
-If you want the RA-OS UI to update in real-time when nodes are created:
+---
 
-1. Start RA-OS: `npm run dev`
-2. Use HTTP config:
+## Direct Database Access
 
-```json
-{
-  "mcpServers": {
-    "ra-h": {
-      "url": "http://127.0.0.1:44145/mcp"
-    }
-  }
-}
+Query your database directly:
+
+```bash
+# Open the database
+sqlite3 ~/Library/Application\ Support/RA-H/db/rah.sqlite
+
+# List all nodes
+SELECT id, title, created_at FROM nodes ORDER BY created_at DESC LIMIT 10;
+
+# Search by title
+SELECT title, description FROM nodes WHERE title LIKE '%react%';
+
+# Find connections
+SELECT n1.title, e.explanation, n2.title
+FROM edges e
+JOIN nodes n1 ON e.from_node_id = n1.id
+JOIN nodes n2 ON e.to_node_id = n2.id
+LIMIT 10;
 ```
 
-## Project Layout
+See [ra-h.com/docs/schema](https://ra-h.com/docs/schema) for full schema documentation.
 
-```
-app/                 Next.js App Router
-src/
-  components/        UI components
-  services/          Database, embeddings, workflows
-  tools/             Available tools for workflows
-apps/mcp-server/     MCP server (stdio + HTTP)
-docs/                Local documentation
-scripts/             Dev helpers
-vendor/              Pre-built binaries (sqlite-vec)
-```
+---
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Dev server at localhost:3000 |
+| Command | What it does |
+|---------|--------------|
+| `npm run dev` | Start the app at localhost:3000 |
 | `npm run build` | Production build |
-| `npm run type-check` | TypeScript validation |
-| `npm run sqlite:backup` | Database snapshot |
-| `npm run sqlite:restore` | Restore from backup |
+| `npm run type-check` | Check TypeScript |
 
-## Documentation
+---
 
-- [docs/0_overview.md](docs/0_overview.md) – System overview
-- [docs/2_schema.md](docs/2_schema.md) – Database schema
-- [docs/8_mcp.md](docs/8_mcp.md) – MCP server details
+## Linux/Windows
 
-## Linux/Windows Setup
+The bundled sqlite-vec binary only works on macOS. For other platforms:
 
-The bundled `sqlite-vec` binary is macOS-only. For other platforms:
+1. Build sqlite-vec from [github.com/asg017/sqlite-vec](https://github.com/asg017/sqlite-vec)
+2. Place at `vendor/sqlite-extensions/vec0.so` (Linux) or `vec0.dll` (Windows)
 
-1. Clone https://github.com/asg017/sqlite-vec
-2. Build for your platform
-3. Place at `vendor/sqlite-extensions/vec0.so` (Linux) or `vec0.dll` (Windows)
-4. Set `SQLITE_VEC_EXTENSION_PATH` in `.env.local`
+Without sqlite-vec, everything works except semantic/vector search.
 
-Without sqlite-vec: UI, node CRUD, and basic search still work. Vector/semantic search requires it.
+---
 
-## Contributing
+## More
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome.
-
-## License
-
-[MIT](LICENSE)
+- **Full docs:** [ra-h.com/docs](https://ra-h.com/docs)
+- **Issues:** [github.com/bradwmorris/ra-h_os/issues](https://github.com/bradwmorris/ra-h_os/issues)
+- **License:** MIT

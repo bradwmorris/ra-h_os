@@ -5,144 +5,121 @@ import { apiKeyService, ApiKeyStatus } from '@/services/storage/apiKeys';
 
 export default function ApiKeysViewer() {
   const [openaiKey, setOpenaiKey] = useState('');
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [status, setStatus] = useState<ApiKeyStatus>({ openai: 'not-set', anthropic: 'not-set' });
-  const [showKeys, setShowKeys] = useState(false);
+  const [status, setStatus] = useState<ApiKeyStatus>({ openai: 'not-set' });
+  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
-    const stored = apiKeyService.getStoredKeys();
-    setOpenaiKey(stored.openai || '');
-    setAnthropicKey(stored.anthropic || '');
+    if (apiKeyService.hasOpenAiKey()) {
+      setOpenaiKey(apiKeyService.getMaskedOpenAiKey());
+    }
     setStatus(apiKeyService.getStatus());
   }, []);
 
-  const handleSaveOpenAi = async () => {
-    if (!openaiKey.trim()) return;
-    apiKeyService.setOpenAiKey(openaiKey.trim());
-    setStatus(prev => ({ ...prev, openai: 'testing' }));
-    const ok = await apiKeyService.testOpenAiConnection();
-    setStatus(prev => ({ ...prev, openai: ok ? 'connected' : 'failed' }));
+  const handleSave = async () => {
+    if (!openaiKey.trim() || openaiKey.includes('•')) return;
+    try {
+      apiKeyService.setOpenAiKey(openaiKey.trim());
+      setStatus({ openai: 'testing' });
+      const ok = await apiKeyService.testOpenAiConnection();
+      setStatus({ openai: ok ? 'connected' : 'failed' });
+      if (ok) {
+        setOpenaiKey(apiKeyService.getMaskedOpenAiKey());
+      }
+    } catch (error) {
+      setStatus({ openai: 'failed' });
+    }
   };
 
-  const handleSaveAnthropic = async () => {
-    if (!anthropicKey.trim()) return;
-    apiKeyService.setAnthropicKey(anthropicKey.trim());
-    setStatus(prev => ({ ...prev, anthropic: 'testing' }));
-    const ok = await apiKeyService.testAnthropicConnection();
-    setStatus(prev => ({ ...prev, anthropic: ok ? 'connected' : 'failed' }));
-  };
-
-  const handleClearOpenAi = () => {
+  const handleClear = () => {
     apiKeyService.clearOpenAiKey();
     setOpenaiKey('');
-    setStatus(prev => ({ ...prev, openai: 'not-set' }));
-  };
-
-  const handleClearAnthropic = () => {
-    apiKeyService.clearAnthropicKey();
-    setAnthropicKey('');
-    setStatus(prev => ({ ...prev, anthropic: 'not-set' }));
+    setStatus({ openai: 'not-set' });
   };
 
   const getStatusLabel = (s: string) => {
     if (s === 'connected') return { text: 'Connected', color: '#22c55e' };
     if (s === 'failed') return { text: 'Failed', color: '#ef4444' };
     if (s === 'testing') return { text: 'Testing...', color: '#6b7280' };
-    return { text: 'Not set', color: '#6b7280' };
+    return { text: 'Not configured', color: '#6b7280' };
   };
+
+  const statusInfo = getStatusLabel(status.openai);
 
   return (
     <div style={containerStyle}>
-      <p style={descStyle}>Keys are stored locally and never shared.</p>
+      {/* Features explanation */}
+      <div style={featuresBoxStyle}>
+        <div style={featuresHeaderStyle}>OpenAI API Key enables:</div>
+        <ul style={featuresListStyle}>
+          <li>Auto-generated descriptions for new nodes</li>
+          <li>Smart dimension assignment</li>
+          <li>Semantic search via embeddings</li>
+        </ul>
+        <div style={noteStyle}>
+          Without a key, you can still create and organize nodes manually.
+        </div>
+      </div>
 
-      <label style={toggleStyle}>
-        <input
-          type="checkbox"
-          checked={showKeys}
-          onChange={(e) => setShowKeys(e.target.checked)}
-          style={{ marginRight: 8 }}
-        />
-        Show keys
-      </label>
-
-      {/* OpenAI */}
+      {/* Key input */}
       <div style={cardStyle}>
         <div style={cardHeaderStyle}>
-          <span style={cardTitleStyle}>OpenAI</span>
-          <span style={{ fontSize: 12, color: getStatusLabel(status.openai).color }}>
-            {getStatusLabel(status.openai).text}
+          <span style={cardTitleStyle}>OpenAI API Key</span>
+          <span style={{ fontSize: 12, color: statusInfo.color }}>
+            {statusInfo.text}
           </span>
         </div>
+
         <input
-          type={showKeys ? 'text' : 'password'}
+          type={showKey ? 'text' : 'password'}
           value={openaiKey}
           onChange={(e) => setOpenaiKey(e.target.value)}
           placeholder="sk-..."
           style={inputStyle}
         />
+
         <div style={buttonRowStyle}>
           <button
-            onClick={handleSaveOpenAi}
-            disabled={!openaiKey.trim()}
-            style={{ ...btnPrimaryStyle, opacity: openaiKey.trim() ? 1 : 0.4 }}
+            onClick={handleSave}
+            disabled={!openaiKey.trim() || openaiKey.includes('•')}
+            style={{
+              ...btnPrimaryStyle,
+              opacity: openaiKey.trim() && !openaiKey.includes('•') ? 1 : 0.4,
+            }}
           >
-            Save
+            Save & Test
           </button>
           <button
-            onClick={handleClearOpenAi}
-            disabled={!openaiKey}
-            style={{ ...btnSecondaryStyle, opacity: openaiKey ? 1 : 0.4 }}
+            onClick={handleClear}
+            disabled={status.openai === 'not-set'}
+            style={{
+              ...btnSecondaryStyle,
+              opacity: status.openai !== 'not-set' ? 1 : 0.4,
+            }}
           >
             Clear
           </button>
+          <label style={toggleStyle}>
+            <input
+              type="checkbox"
+              checked={showKey}
+              onChange={(e) => setShowKey(e.target.checked)}
+              style={{ marginRight: 6 }}
+            />
+            Show
+          </label>
         </div>
       </div>
 
-      {/* Anthropic */}
-      <div style={cardStyle}>
-        <div style={cardHeaderStyle}>
-          <span style={cardTitleStyle}>Anthropic</span>
-          <span style={{ fontSize: 12, color: getStatusLabel(status.anthropic).color }}>
-            {getStatusLabel(status.anthropic).text}
-          </span>
-        </div>
-        <input
-          type={showKeys ? 'text' : 'password'}
-          value={anthropicKey}
-          onChange={(e) => setAnthropicKey(e.target.value)}
-          placeholder="sk-ant-..."
-          style={inputStyle}
-        />
-        <div style={buttonRowStyle}>
-          <button
-            onClick={handleSaveAnthropic}
-            disabled={!anthropicKey.trim()}
-            style={{ ...btnPrimaryStyle, opacity: anthropicKey.trim() ? 1 : 0.4 }}
-          >
-            Save
-          </button>
-          <button
-            onClick={handleClearAnthropic}
-            disabled={!anthropicKey}
-            style={{ ...btnSecondaryStyle, opacity: anthropicKey ? 1 : 0.4 }}
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
-      {/* Help */}
+      {/* Get key link */}
       <div style={helpStyle}>
-        <div style={{ marginBottom: 8 }}>Get keys from:</div>
-        <div>
-          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={linkStyle}>
-            OpenAI →
-          </a>
-          <span style={{ margin: '0 12px', color: '#4b5563' }}>·</span>
-          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={linkStyle}>
-            Anthropic →
-          </a>
-        </div>
+        <a
+          href="https://platform.openai.com/api-keys"
+          target="_blank"
+          rel="noreferrer"
+          style={linkStyle}
+        >
+          Get your API key from OpenAI →
+        </a>
       </div>
     </div>
   );
@@ -154,19 +131,34 @@ const containerStyle: CSSProperties = {
   overflow: 'auto',
 };
 
-const descStyle: CSSProperties = {
-  fontSize: 13,
-  color: '#6b7280',
-  marginBottom: 16,
+const featuresBoxStyle: CSSProperties = {
+  background: 'rgba(34, 197, 94, 0.08)',
+  border: '1px solid rgba(34, 197, 94, 0.2)',
+  borderRadius: 8,
+  padding: 16,
+  marginBottom: 20,
 };
 
-const toggleStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
+const featuresHeaderStyle: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 500,
+  color: '#22c55e',
+  marginBottom: 8,
+};
+
+const featuresListStyle: CSSProperties = {
+  margin: 0,
+  paddingLeft: 20,
+  fontSize: 13,
+  color: '#d1d5db',
+  lineHeight: 1.6,
+};
+
+const noteStyle: CSSProperties = {
+  marginTop: 12,
   fontSize: 12,
   color: '#6b7280',
-  cursor: 'pointer',
-  marginBottom: 20,
+  fontStyle: 'italic',
 };
 
 const cardStyle: CSSProperties = {
@@ -206,6 +198,7 @@ const inputStyle: CSSProperties = {
 const buttonRowStyle: CSSProperties = {
   display: 'flex',
   gap: 8,
+  alignItems: 'center',
 };
 
 const btnPrimaryStyle: CSSProperties = {
@@ -230,12 +223,16 @@ const btnSecondaryStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
+const toggleStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  fontSize: 12,
+  color: '#6b7280',
+  cursor: 'pointer',
+  marginLeft: 'auto',
+};
+
 const helpStyle: CSSProperties = {
-  marginTop: 8,
-  padding: 16,
-  background: 'rgba(255, 255, 255, 0.02)',
-  border: '1px solid rgba(255, 255, 255, 0.06)',
-  borderRadius: 8,
   fontSize: 12,
   color: '#6b7280',
 };

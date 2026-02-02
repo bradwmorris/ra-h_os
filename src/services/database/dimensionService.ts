@@ -1,6 +1,7 @@
 import { getSQLiteClient } from './sqlite-client';
 import { openai as openaiProvider } from '@ai-sdk/openai';
 import { generateText } from 'ai';
+import { hasValidOpenAiKey } from './descriptionService';
 
 export interface Dimension {
   name: string;
@@ -48,6 +49,9 @@ export class DimensionService {
   /**
    * Automatically assign locked dimensions + suggest keyword dimensions
    * Returns { locked: string[], keywords: string[] }
+   *
+   * IMPORTANT: Returns empty result immediately if no valid API key is configured.
+   * This prevents slow node creation when OpenAI is unavailable.
    */
   static async assignDimensions(nodeData: {
     title: string;
@@ -55,6 +59,12 @@ export class DimensionService {
     link?: string;
     description?: string;
   }): Promise<{ locked: string[]; keywords: string[] }> {
+    // Fast path: skip AI if no valid API key
+    if (!hasValidOpenAiKey()) {
+      console.log(`[DimensionAssignment] No valid OpenAI key, skipping for: "${nodeData.title}"`);
+      return { locked: [], keywords: [] };
+    }
+
     try {
       const lockedDimensions = await this.getLockedDimensions();
 

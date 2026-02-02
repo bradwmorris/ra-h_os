@@ -11,6 +11,15 @@ log() {
   echo "[bootstrap-local] $1"
 }
 
+# Check Node.js version (require 18+)
+NODE_VERSION=$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1 || echo "0")
+if [ "$NODE_VERSION" -lt 18 ]; then
+  echo "Error: Node.js 18+ required (found v$NODE_VERSION or not installed)" >&2
+  echo "Install from: https://nodejs.org" >&2
+  exit 1
+fi
+log "Node.js v$NODE_VERSION detected ✓"
+
 if [ ! -f "$ENV_TEMPLATE" ]; then
   echo "Error: ${ENV_TEMPLATE} not found. Make sure .env.example exists." >&2
   exit 1
@@ -53,4 +62,4 @@ fi
 log "Seeding database schema via sqlite-ensure-app-schema.sh"
 "$SQLITE_SEED_SCRIPT" "$EXPANDED_DB_PATH"
 
-log "Bootstrap complete. Run 'npm run dev:local' to start the local-first app."
+log "Bootstrap complete. Run 'npm run dev' to start the app."

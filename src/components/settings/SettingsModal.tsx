@@ -32,8 +32,8 @@ export default function SettingsModal({ isOpen, onClose, initialTab }: SettingsM
   // Default to API Keys tab if no keys are configured, otherwise logs
   const getDefaultTab = (): TabType => {
     if (typeof window !== 'undefined') {
-      const hasKeys = apiKeyService.getOpenAiKey() || apiKeyService.getAnthropicKey();
-      return hasKeys ? 'logs' : 'apikeys';
+      const hasKey = apiKeyService.getOpenAiKey();
+      return hasKey ? 'logs' : 'apikeys';
     }
     return 'logs';
   };

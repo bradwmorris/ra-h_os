@@ -1,24 +1,18 @@
 // API Key Storage Service
-// Handles secure storage and retrieval of user-provided API keys
-
-export interface ApiKeys {
-  openai?: string;
-  anthropic?: string;
-}
+// Handles storage and retrieval of OpenAI API key
 
 export interface ApiKeyStatus {
   openai: 'connected' | 'failed' | 'testing' | 'not-set';
-  anthropic: 'connected' | 'failed' | 'testing' | 'not-set';
 }
 
 const STORAGE_KEY = 'ra-h-api-keys';
+const FIRST_RUN_KEY = 'ra-h-first-run-complete';
 
 export class ApiKeyService {
   private static instance: ApiKeyService;
-  private keys: ApiKeys = {};
+  private openaiKey: string | undefined;
   private status: ApiKeyStatus = {
     openai: 'not-set',
-    anthropic: 'not-set'
   };
 
   static getInstance(): ApiKeyService {
@@ -38,12 +32,13 @@ export class ApiKeyService {
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
-          this.keys = JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          this.openaiKey = parsed.openai;
         }
       }
     } catch (error) {
       console.warn('Failed to load API keys from storage:', error);
-      this.keys = {};
+      this.openaiKey = undefined;
     }
   }
 
@@ -51,7 +46,7 @@ export class ApiKeyService {
   private saveKeys(): void {
     try {
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.keys));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ openai: this.openaiKey }));
       }
     } catch (error) {
       console.error('Failed to save API keys to storage:', error);
@@ -61,87 +56,44 @@ export class ApiKeyService {
   // Get OpenAI API key (user key or fallback to env)
   getOpenAiKey(): string | undefined {
     // Priority: User key > Environment key
-    return this.keys.openai || process.env.OPENAI_API_KEY;
-  }
-
-  // Get Anthropic API key (user key or fallback to env)
-  getAnthropicKey(): string | undefined {
-    // Priority: User key > Environment key  
-    return this.keys.anthropic || process.env.ANTHROPIC_API_KEY;
+    return this.openaiKey || process.env.OPENAI_API_KEY;
   }
 
   // Set OpenAI API key
   setOpenAiKey(key: string): void {
     if (this.validateOpenAiKey(key)) {
-      this.keys.openai = key;
+      this.openaiKey = key;
       this.saveKeys();
     } else {
       throw new Error('Invalid OpenAI API key format');
     }
   }
 
-  // Set Anthropic API key
-  setAnthropicKey(key: string): void {
-    if (this.validateAnthropicKey(key)) {
-      this.keys.anthropic = key;
-      this.saveKeys();
-    } else {
-      throw new Error('Invalid Anthropic API key format');
-    }
-  }
-
-  // Clear specific key
+  // Clear OpenAI key
   clearOpenAiKey(): void {
-    delete this.keys.openai;
+    this.openaiKey = undefined;
     this.saveKeys();
     this.status.openai = 'not-set';
   }
 
-  clearAnthropicKey(): void {
-    delete this.keys.anthropic;
-    this.saveKeys();
-    this.status.anthropic = 'not-set';
-  }
-
-  // Clear all keys
-  clearAllKeys(): void {
-    this.keys = {};
-    this.saveKeys();
-    this.status = {
-      openai: 'not-set',
-      anthropic: 'not-set'
-    };
-  }
-
   // Get masked key for display (show only last 4 characters)
-  getMaskedKey(provider: 'openai' | 'anthropic'): string {
-    const key = provider === 'openai' ? this.keys.openai : this.keys.anthropic;
-    if (!key) return '';
-    return '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••' + key.slice(-4);
+  getMaskedOpenAiKey(): string {
+    if (!this.openaiKey) return '';
+    return '••••••••••••••••••••' + this.openaiKey.slice(-4);
   }
 
-  // Check if user has provided custom keys
-  hasUserKeys(): boolean {
-    return !!(this.keys.openai || this.keys.anthropic);
-  }
-
-  // Get current keys (for internal use)
-  getStoredKeys(): ApiKeys {
-    return { ...this.keys };
+  // Check if user has provided a key
+  hasOpenAiKey(): boolean {
+    return !!this.openaiKey;
   }
 
   // Validate OpenAI key format
   private validateOpenAiKey(key: string): boolean {
-    return typeof key === 'string' && 
-           key.length > 20 && 
-           (key.startsWith('sk-') || key.startsWith('sk-proj-'));
-  }
-
-  // Validate Anthropic key format  
-  private validateAnthropicKey(key: string): boolean {
-    return typeof key === 'string' && 
-           key.length > 20 && 
-           key.startsWith('sk-ant-');
+    return (
+      typeof key === 'string' &&
+      key.length > 20 &&
+      (key.startsWith('sk-') || key.startsWith('sk-proj-'))
+    );
   }
 
   // Test connection to OpenAI
@@ -150,13 +102,13 @@ export class ApiKeyService {
     if (!testKey) return false;
 
     this.status.openai = 'testing';
-    
+
     try {
       const response = await fetch('https://api.openai.com/v1/models', {
         headers: {
-          'Authorization': `Bearer ${testKey}`,
-          'Content-Type': 'application/json'
-        }
+          Authorization: `Bearer ${testKey}`,
+          'Content-Type': 'application/json',
+        },
       });
 
       const isConnected = response.ok;
@@ -169,47 +121,26 @@ export class ApiKeyService {
     }
   }
 
-  // Test connection to Anthropic
-  async testAnthropicConnection(key?: string): Promise<boolean> {
-    const testKey = key || this.getAnthropicKey();
-    if (!testKey) return false;
-
-    this.status.anthropic = 'testing';
-
-    try {
-      // Simple test call to Anthropic API
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': testKey,
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'test' }]
-        })
-      });
-
-      const isConnected = response.ok;
-      this.status.anthropic = isConnected ? 'connected' : 'failed';
-      return isConnected;
-    } catch (error) {
-      console.error('Anthropic connection test failed:', error);
-      this.status.anthropic = 'failed';
-      return false;
-    }
-  }
-
   // Get connection status
   getStatus(): ApiKeyStatus {
     return { ...this.status };
   }
 
   // Update status
-  updateStatus(provider: 'openai' | 'anthropic', status: ApiKeyStatus['openai']): void {
-    this.status[provider] = status;
+  updateStatus(status: ApiKeyStatus['openai']): void {
+    this.status.openai = status;
+  }
+
+  // First-run tracking
+  isFirstRun(): boolean {
+    if (typeof window === 'undefined') return false;
+    return !localStorage.getItem(FIRST_RUN_KEY);
+  }
+
+  markFirstRunComplete(): void {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(FIRST_RUN_KEY, 'true');
+    }
   }
 }
 
