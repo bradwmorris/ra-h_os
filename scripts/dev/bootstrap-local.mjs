@@ -155,10 +155,10 @@ function applySetupProfile(profile) {
 
   if (profile === 'qwen-local') {
     ensureEnvValue('LLM_PROFILE', 'openai-compatible');
-    ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:11434/v1');
+    ensureEnvValue('LLM_BASE_URL', process.env.LLM_BASE_URL || 'http://127.0.0.1:11434/v1');
     ensureEnvValue('LLM_MODEL', 'qwen3:4b');
     ensureEnvValue('EMBEDDING_PROFILE', 'openai-compatible');
-    ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:11434/v1');
+    ensureEnvValue('EMBEDDING_BASE_URL', process.env.EMBEDDING_BASE_URL || 'http://127.0.0.1:11434/v1');
     ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding:0.6b');
     ensureEnvValue('EMBEDDING_DIMENSIONS', '1024');
     ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
@@ -166,10 +166,10 @@ function applySetupProfile(profile) {
   }
 
   ensureEnvValue('LLM_PROFILE', 'openai-compatible');
-  ensureEnvValue('LLM_BASE_URL', 'http://127.0.0.1:8080/v1');
+  ensureEnvValue('LLM_BASE_URL', process.env.LLM_BASE_URL || 'http://127.0.0.1:8080/v1');
   ensureEnvValue('LLM_MODEL', 'qwen3-4b');
   ensureEnvValue('EMBEDDING_PROFILE', 'openai-compatible');
-  ensureEnvValue('EMBEDDING_BASE_URL', 'http://127.0.0.1:8081/v1');
+  ensureEnvValue('EMBEDDING_BASE_URL', process.env.EMBEDDING_BASE_URL || 'http://127.0.0.1:8081/v1');
   ensureEnvValue('EMBEDDING_MODEL', 'qwen3-embedding-0.6b');
   ensureEnvValue('EMBEDDING_DIMENSIONS', '1024');
   ensureEnvValue('VECTOR_BACKEND', 'sqlite-vec');
