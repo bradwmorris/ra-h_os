@@ -1,0 +1,13 @@
+# Pre-seeded state: nvm is installed but no Node version has been installed.
+# Exercises install.sh's "nvm detected — using it to install Node.js v20" path.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq \
+ && apt-get install -y -qq curl git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install nvm (no Node version). NVM_DIR defaults to /root/.nvm.
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+
+ENV NVM_DIR=/root/.nvm

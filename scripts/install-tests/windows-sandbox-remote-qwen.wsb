@@ -1,0 +1,7 @@
+<Configuration>
+  <Networking>Enable</Networking>
+  <MemoryInMB>6144</MemoryInMB>
+  <LogonCommand>
+    <Command>powershell.exe -NoExit -ExecutionPolicy Bypass -Command "Write-Host '[ra-h] Testing install.ps1 (remote, main branch, qwen-local profile) in Windows Sandbox' -ForegroundColor Green; Write-Host '[ra-h] This will install Ollama via winget and pull ~3 GB of models — be patient.' -ForegroundColor Yellow; Set-Location $env:USERPROFILE; &amp; ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -AiProfile qwen-local -Yes"</Command>
+  </LogonCommand>
+</Configuration>

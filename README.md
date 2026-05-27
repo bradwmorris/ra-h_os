@@ -48,6 +48,42 @@ Current contract:
 
 ## Install
 
+### Quick Install (one-liner)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+```
+
+> **Security note:** To review before running: `curl -fsSL <url> -o install.sh && less install.sh && bash install.sh`
+
+The scripts clone the repo, install dependencies, run setup, and prompt for your OpenAI API key. Node.js and Ollama (for `qwen-local`) are installed automatically if missing. See `scripts/install.sh` / `scripts/install.ps1` for full source.
+
+**Supported flags:**
+
+| Flag (bash) | Flag (PowerShell) | Default | Description |
+|---|---|---|---|
+| `--profile` | `-AiProfile` | `openai` | `openai`, `qwen-local`, or `llama-cpp` |
+| `--dir` | `-InstallDir` | `ra-h_os` | Clone destination |
+| `--llm-port` | `-LlmPort` | `8080` | llama.cpp chat port |
+| `--embedding-port` | `-EmbeddingPort` | `8081` | llama.cpp embedding port |
+| `--yes` / `-y` | `-Yes` | off | Non-interactive / CI mode |
+
+**CI/CD (GitHub Actions):**
+```yaml
+- name: Install RA-H
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes
+```
+
+---
+
 ### Choose One Model Path
 
 Every path uses a local SQLite database. The choice is only about where the two AI models run:
@@ -227,7 +263,7 @@ With a key, you get:
 
 **Cost:** Less than $0.10/day for heavy use. Most users spend $1-2/month.
 
-**Setup:** The app will prompt you on first launch, or go to Settings -> API Keys.
+**Setup:** The install script will prompt for your key during setup, or the app will prompt on first launch, or go to Settings -> API Keys.
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 

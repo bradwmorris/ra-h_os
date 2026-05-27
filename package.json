@@ -49,6 +49,7 @@
     "react-dom": "^19.0.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "sqlite3": "^6.0.1",
     "tiptap-markdown": "^0.9.0",
     "youtube-transcript": "^1.2.1",
     "youtube-transcript-plus": "^1.1.1",

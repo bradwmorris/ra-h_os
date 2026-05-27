@@ -2,12 +2,27 @@
 
 import { spawnSync } from 'node:child_process';
 
+// Quote a token that contains whitespace or cmd.exe metacharacters.
+function quoteArg(a) {
+  return /[\s"&|<>^()]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a;
+}
+
 function run(command, args) {
-  const result = spawnSync(command, args, {
-    stdio: 'inherit',
-    env: process.env,
-    shell: process.platform === 'win32',
-  });
+  // On Windows, npm/npx are .cmd shims that need a shell to launch (spawning a
+  // .cmd without shell throws EINVAL on patched Node), but Node 24 emits DEP0190
+  // when shell:true is combined with an args array. So on Windows we pass a
+  // single pre-quoted command line (no args array); elsewhere we spawn the
+  // binary directly with the args array and no shell.
+  const result = process.platform === 'win32'
+    ? spawnSync([command, ...args].map(quoteArg).join(' '), {
+        stdio: 'inherit',
+        env: process.env,
+        shell: true,
+      })
+    : spawnSync(command, args, {
+        stdio: 'inherit',
+        env: process.env,
+      });
 
   if (result.error) {
     console.error(`[setup-local] Failed to run ${command}: ${result.error.message}`);

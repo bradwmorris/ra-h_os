@@ -1,0 +1,19 @@
+# Pre-seeded state: nvm + Node 18.x (LTS — too old per install.sh's 20.18.1 floor).
+# Exercises install.sh's "Node exists but too old — upgrade via nvm" recovery path.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq \
+ && apt-get install -y -qq curl git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash \
+ && bash -lc '. /root/.nvm/nvm.sh \
+      && nvm install 18 \
+      && nvm alias default 18 \
+      && NODE_DIR=$(dirname $(nvm which 18)) \
+      && ln -sf $NODE_DIR/node /usr/local/bin/node \
+      && ln -sf $NODE_DIR/npm  /usr/local/bin/npm \
+      && ln -sf $NODE_DIR/npx  /usr/local/bin/npx'
+
+ENV NVM_DIR=/root/.nvm

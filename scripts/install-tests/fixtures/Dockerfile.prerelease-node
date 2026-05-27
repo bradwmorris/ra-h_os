@@ -1,0 +1,28 @@
+# Pre-seeded state: nvm + Node 20, with a shim that makes
+# `node -p 'process.versions.node'` return "20.18.1-rc.1".
+# All other node invocations (npm install, setup:local) exec the real node
+# via /usr/local/bin/node-real.
+#
+# Regression guard for L-PASS5-1: without the `%%[!0-9]*` suffix-strip in
+# install.sh, parsing "1-rc.1" as an integer crashes bash arithmetic under
+# `set -e`, hard-exiting the installer for any user on a pre-release Node.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq \
+ && apt-get install -y -qq curl git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash \
+ && bash -lc '. /root/.nvm/nvm.sh \
+      && nvm install 20 \
+      && nvm alias default 20 \
+      && NODE_DIR=$(dirname $(nvm which 20)) \
+      && ln -sf $NODE_DIR/node /usr/local/bin/node-real \
+      && ln -sf $NODE_DIR/npm  /usr/local/bin/npm \
+      && ln -sf $NODE_DIR/npx  /usr/local/bin/npx'
+
+COPY fixtures/node-version-shim.sh /usr/local/bin/node
+RUN chmod +x /usr/local/bin/node
+
+ENV NVM_DIR=/root/.nvm

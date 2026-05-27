@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+# Drives install.sh's INTERACTIVE OpenAI-key prompt under a pseudo-terminal.
+# install.sh reads the key with `read -rsp ... </dev/tty`, so piping stdin
+# doesn't reach it — expect provides a controlling pty whose /dev/tty the
+# script reads from. Run inside a container by the openai-interactive-key
+# scenario in linux-edge-cases.sh.
+#
+# Answers two prompts (no --yes): the Node-install prompt, then the hidden key
+# prompt. The caller then asserts the key landed in .env.local.
+set timeout 600
+
+cd /tmp
+spawn bash /work/scripts/install.sh --profile openai
+
+# Phase 1: walk past the Node-install prompt (fresh image has no Node) and stop
+# at the OpenAI key prompt.
+expect {
+  -re {Install Node\.js v20 via nvm now} { send "y\r"; exp_continue }
+  -re {OpenAI API key}                    { send "sk-test-interactive-123\r" }
+  timeout { puts "\n[exp] TIMEOUT waiting for the OpenAI key prompt"; exit 3 }
+}
+
+# Phase 2: confirm the installer finishes.
+expect {
+  -re {Installation complete} { }
+  timeout { puts "\n[exp] TIMEOUT waiting for 'Installation complete'"; exit 4 }
+}
+expect eof
