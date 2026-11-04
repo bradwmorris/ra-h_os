@@ -23,7 +23,7 @@ npm install -g windows-build-tools
 **Symptom:** Native module rebuild errors
 
 **Fix:**
-1. Ensure Node.js 20.18.1+ is installed
+1. Ensure Node.js 22+ is installed
 2. Delete `node_modules` and reinstall:
    ```bash
    rm -rf node_modules package-lock.json

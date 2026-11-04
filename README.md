@@ -40,7 +40,7 @@ Current contract:
 
 ## Requirements
 
-- **Node.js 20.18.1+** — [nodejs.org](https://nodejs.org/)
+- **Node.js 22+** — [nodejs.org](https://nodejs.org/) (tested on 22, 24 and 26)
 - **macOS** — Works out of the box
 - **Windows/Linux** — Core app flow is being validated; vector search requires sqlite-vec for your platform or Qdrant as the sidecar backend
 

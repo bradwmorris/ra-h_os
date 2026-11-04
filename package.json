@@ -5,6 +5,9 @@
   "description": "RA-H Open Source – local-first research workspace with BYO API keys",
   "license": "MIT",
   "author": "Bradley Morris",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "bootstrap:local": "node ./scripts/dev/bootstrap-local.mjs",
     "setup:local": "node ./scripts/dev/setup-local.mjs",
@@ -37,7 +40,7 @@
     "@tiptap/starter-kit": "^3.20.4",
     "@xyflow/react": "^12.10.0",
     "ai": "^6.0.27",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.1.2",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.468.0",
@@ -56,7 +59,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "22.10.2",
+    "@types/node": "22.20.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "19.0.2",
     "autoprefixer": "^10.4.20",

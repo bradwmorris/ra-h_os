@@ -673,8 +673,8 @@ function tryInitVectorTables(db, dbPath, env) {
 
 function main() {
   const major = Number(process.versions.node.split('.')[0] || '0');
-  if (major < 20) {
-    throw new Error(`Node.js 20+ required (found ${process.version})`);
+  if (major < 22) {
+    throw new Error(`Node.js 22+ required (found ${process.version})`);
   }
 
   const args = parseArgs(process.argv.slice(2));
