@@ -19,11 +19,11 @@ assert_exists() {
 
 check_universal() {
   local path="$1"
-  if ! file "$path" | grep -q "arm64"; then
+  if ! file -b "$path" | grep -q "arm64"; then
     echo "❌ $path is missing arm64 slice" >&2
     exit 1
   fi
-  if ! file "$path" | grep -q "x86_64"; then
+  if ! file -b "$path" | grep -q "x86_64"; then
     echo "❌ $path is missing x86_64 slice" >&2
     exit 1
   fi
@@ -40,10 +40,11 @@ run_dual_arch_node() {
   fi
 }
 
+# `file -b` omits the filename: darwin-arm64.node would otherwise always match "arm64".
 check_single_arch() {
   local path="$1"
   local expected="$2"
-  if ! file "$path" | grep -q "$expected"; then
+  if ! file -b "$path" | grep -q "$expected"; then
     echo "❌ $path is not a ${expected} binary" >&2
     exit 1
   fi
