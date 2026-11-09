@@ -7,6 +7,7 @@ import {
   useNodesState,
   useEdgesState,
   type NodeMouseHandler,
+  type OnNodeDrag,
   type Node as RFNode,
   type Edge as RFEdge,
   ReactFlowProvider,
@@ -30,7 +31,10 @@ import {
   type MapViewMode,
   type RahNodeData,
 } from './map/utils';
+import { useSpringLayout } from './map/useSpringLayout';
+import type { Point } from './map/springLayout';
 import { useTheme } from '@/hooks/useTheme';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import './map/map-styles.css';
 
 const nodeTypes = { rahNode: RahNode };
@@ -38,6 +42,15 @@ const edgeTypes = { rahEdge: RahEdge };
 
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_RESULT_LIMIT = 8;
+
+const LAYOUT_CENTER_X = 640;
+const LAYOUT_CENTER_Y = 420;
+// Node positions are their top-left corner; pad camera bounds by the largest rendered
+// node size (map-styles.css caps .rah-map-node at 168px wide) so labels stay in view.
+const NODE_MAX_WIDTH = 168;
+const NODE_APPROX_HEIGHT = 36;
+// Moves under this many pixels count as a click (focus the node), not a drag.
+const NODE_DRAG_THRESHOLD = 4;
 
 function MapPaneInner({
   slot,
@@ -50,6 +63,7 @@ function MapPaneInner({
 }: MapPaneProps) {
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
+  const reducedMotion = usePrefersReducedMotion();
 
   const [baseNodes, setBaseNodes] = useState<DbNode[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<DbNode[]>([]);
@@ -151,30 +165,57 @@ function MapPaneInner({
     void fetchData();
   }, []);
 
-  useEffect(() => {
-    const centerX = 640;
-    const centerY = 420;
-    const nodeIdSet = new Set(visibleNodes.map((node) => String(node.id)));
+  // Target layout: where each node should come to rest for the current view.
+  const layoutNodes = useMemo(
+    () => toRFNodes({
+      nodes: visibleNodes,
+      viewMode,
+      degreeMap,
+      adjacency,
+      focusedGraph,
+      centerX: LAYOUT_CENTER_X,
+      centerY: LAYOUT_CENTER_Y,
+    }),
+    [adjacency, degreeMap, focusedGraph, viewMode, visibleNodes],
+  );
 
-    setRfNodes(
-      toRFNodes({
-        nodes: visibleNodes,
-        viewMode,
-        degreeMap,
-        adjacency,
-        focusedGraph,
-        centerX,
-        centerY,
-      }),
-    );
-    setRfEdges(
-      toRFEdges({
-        dbEdges,
-        nodeIds: nodeIdSet,
-        focusedGraph,
-      }),
-    );
-  }, [adjacency, dbEdges, degreeMap, focusedGraph, setRfEdges, setRfNodes, viewMode, visibleNodes]);
+  const layoutEdges = useMemo(
+    () => toRFEdges({
+      dbEdges,
+      nodeIds: new Set(visibleNodes.map((node) => String(node.id))),
+      focusedGraph,
+    }),
+    [dbEdges, focusedGraph, visibleNodes],
+  );
+
+  // The spring simulation animates rendered positions toward the target layout. Only
+  // positions are patched per frame; other node fields (React Flow's measured size,
+  // selection) are preserved.
+  const applyAnimatedPositions = useCallback((positions: Map<string, Point>) => {
+    setRfNodes((prev) => prev.map((node) => {
+      const position = positions.get(node.id);
+      if (!position || (position.x === node.position.x && position.y === node.position.y)) return node;
+      return { ...node, position };
+    }));
+  }, [setRfNodes]);
+
+  const springLayout = useSpringLayout({ onFrame: applyAnimatedPositions, reducedMotion });
+
+  useEffect(() => {
+    const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
+    const links = layoutEdges.map((edge): [string, string] => [edge.source, edge.target]);
+    const start = springLayout.retarget(targets, links);
+
+    setRfNodes((prev) => {
+      const previousById = new Map(prev.map((node) => [node.id, node]));
+      return layoutNodes.map((node) => ({
+        ...previousById.get(node.id),
+        ...node,
+        position: start.get(node.id) ?? node.position,
+      }));
+    });
+    setRfEdges(layoutEdges);
+  }, [layoutEdges, layoutNodes, setRfEdges, setRfNodes, springLayout]);
 
   useEffect(() => {
     if (!focusedGraph) {
@@ -272,26 +313,41 @@ function MapPaneInner({
     return () => window.clearTimeout(timeout);
   }, [searchQuery]);
 
+  // Frame the camera on the TARGET layout, not the rendered positions, which are still
+  // mid-animation when the view changes.
   useEffect(() => {
-    if (loading || rfNodes.length === 0) return;
+    if (loading || layoutNodes.length === 0) return;
 
     const timeout = window.setTimeout(() => {
       if (focusedGraph && selectedNodeId) {
-        const selectedNode = rfNodes.find((node) => node.id === String(selectedNodeId));
+        const selectedNode = layoutNodes.find((node) => node.id === String(selectedNodeId));
         if (selectedNode) {
           reactFlowInstance.setCenter(selectedNode.position.x, selectedNode.position.y, {
-            duration: 280,
+            duration: reducedMotion ? 0 : 420,
             zoom: 1.02,
           });
         }
         return;
       }
 
-      reactFlowInstance.fitView({ padding: 0.22, duration: 280 });
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      layoutNodes.forEach(({ position }) => {
+        minX = Math.min(minX, position.x);
+        minY = Math.min(minY, position.y);
+        maxX = Math.max(maxX, position.x + NODE_MAX_WIDTH);
+        maxY = Math.max(maxY, position.y + NODE_APPROX_HEIGHT);
+      });
+      reactFlowInstance.fitBounds(
+        { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+        { padding: 0.18, duration: reducedMotion ? 0 : 420 },
+      );
     }, 80);
 
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, loading, reactFlowInstance, rfNodes, selectedNodeId]);
+  }, [focusedGraph, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -408,6 +464,17 @@ function MapPaneInner({
     setHoveredNodeId(null);
   }, []);
 
+  // Dragging holds the node under the pointer; linked neighbours follow on their springs.
+  // On release the node keeps its new place and the neighbours settle back.
+  const handleNodeDrag: OnNodeDrag<RFNode<RahNodeData>> = useCallback((_event, node) => {
+    springLayout.pin(node.id, node.position);
+  }, [springLayout]);
+
+  const handleNodeDragStop: OnNodeDrag<RFNode<RahNodeData>> = useCallback((_event, node) => {
+    springLayout.pin(node.id, node.position);
+    springLayout.release(node.id);
+  }, [springLayout]);
+
   const fitVisibleNodes = useCallback(() => {
     reactFlowInstance.fitView({ padding: 0.2, duration: 260 });
   }, [reactFlowInstance]);
@@ -480,7 +547,11 @@ function MapPaneInner({
               edgeTypes={edgeTypes}
               minZoom={0.12}
               maxZoom={2.5}
-              nodesDraggable={false}
+              onNodeDragStart={handleNodeDrag}
+              onNodeDrag={handleNodeDrag}
+              onNodeDragStop={handleNodeDragStop}
+              nodesDraggable
+              nodeDragThreshold={NODE_DRAG_THRESHOLD}
               nodesConnectable={false}
               elementsSelectable
               selectNodesOnDrag={false}
