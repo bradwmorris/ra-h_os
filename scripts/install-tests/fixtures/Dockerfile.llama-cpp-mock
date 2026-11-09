@@ -1,0 +1,12 @@
+# Pre-seeded state: ubuntu + curl/git/ca-certs + python3 + a tiny mock
+# HTTP server that returns 200 on any GET. Used by the llama-cpp
+# scenario in place of a real llama.cpp + GGUF model.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq \
+ && apt-get install -y -qq curl git ca-certificates python3-minimal \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY fixtures/llama-cpp-mock-server.py /usr/local/bin/llama-cpp-mock-server
+RUN chmod +x /usr/local/bin/llama-cpp-mock-server

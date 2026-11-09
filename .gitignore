@@ -76,6 +76,9 @@ Thumbs.db
 # Optional eslint cache
 .eslintcache
 
+# Code review artifacts (local only)
+*_CODE_REVIEW.md
+
 # Backup files
 backups/
 
@@ -85,3 +88,4 @@ apps/mac/src-tauri/target/
 dist/local-app/
 dist/runtime/
 dist/.staging/
+scripts/install-tests/logs/

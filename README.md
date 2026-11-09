@@ -40,13 +40,51 @@ Current contract:
 
 ## Requirements
 
-- **Node.js 20.18.1+** — [nodejs.org](https://nodejs.org/)
+- **Node.js 22+** — [nodejs.org](https://nodejs.org/) (tested on 22, 24 and 26)
 - **macOS** — Works out of the box
 - **Windows/Linux** — Core app flow is being validated; vector search requires sqlite-vec for your platform or Qdrant as the sidecar backend
 
 ---
 
 ## Install
+
+### Quick Install (one-liner)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
+```
+
+> **Security note:** To review before running: `curl -fsSL <url> -o install.sh && less install.sh && bash install.sh`
+
+The scripts clone the repo, install dependencies, run setup, and prompt for your OpenAI API key. Node.js and Ollama (for `qwen-local`) are installed automatically if missing. See `scripts/install.sh` / `scripts/install.ps1` for full source.
+
+**Supported flags:**
+
+| Flag (bash) | Flag (PowerShell) | Default | Description |
+|---|---|---|---|
+| `--profile` | `-AiProfile` | `openai` | `openai`, `qwen-local`, or `llama-cpp` |
+| `--dir` | `-InstallDir` | `ra-h_os` | Clone destination |
+| `--llm-port` | `-LlmPort` | `8080` | llama.cpp chat port |
+| `--embedding-port` | `-EmbeddingPort` | `8081` | llama.cpp embedding port |
+| `--yes` / `-y` | `-Yes` | off | Non-interactive / CI mode |
+
+**CI/CD (GitHub Actions):**
+```yaml
+- name: Install RA-H
+  # shell: bash runs with -o pipefail, so a failed download fails the step
+  shell: bash
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes
+```
+
+---
 
 ### Choose One Model Path
 
@@ -227,7 +265,7 @@ With a key, you get:
 
 **Cost:** Less than $0.10/day for heavy use. Most users spend $1-2/month.
 
-**Setup:** The app will prompt you on first launch, or go to Settings -> API Keys.
+**Setup:** The install script will prompt for your key during setup, or the app will prompt on first launch, or go to Settings -> API Keys.
 
 Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
