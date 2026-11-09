@@ -17,23 +17,32 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import type { Edge as DbEdge, Node as DbNode } from '@/types/database';
+import { Boxes, CircleDot, LayoutGrid, ListStart, Network } from 'lucide-react';
 import PaneHeader from './PaneHeader';
+import { SegmentedControl, type SegmentedOption } from '@/components/common/SegmentedControl';
 import type { MapPaneProps } from './types';
 import { RahNode } from './map/RahNode';
 import { RahGroup } from './map/RahGroup';
+import { RahTick, type RahTickData } from './map/RahTick';
 import { RahEdge } from './map/RahEdge';
 import {
   buildAdjacency,
   buildDegreeMap,
   buildFocusedGraph,
   describeGroups,
+  groupBand,
   groupHull,
+  computeTimelineLayout,
+  createdAtTimes,
   toRFNodes,
   toRFEdges,
   withUngroupedAsUnlinked,
   NODE_BOX,
   NODE_LIMIT,
   type MapGroup,
+  type OverviewLayout,
+  isOverviewLayout,
+  OUTLINED_LAYOUTS,
   type MapViewMode,
   type RahGroupData,
   type RahNodeData,
@@ -43,13 +52,34 @@ import { useSpringLayout } from './map/useSpringLayout';
 import type { Point } from './map/springLayout';
 import { useTheme } from '@/hooks/useTheme';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { usePersistentState } from '@/hooks/usePersistentState';
 import './map/map-styles.css';
 
 type RahFlowNode = RFNode<RahNodeData, 'rahNode'>;
 type GroupFlowNode = RFNode<RahGroupData, 'rahGroup'>;
-type MapFlowNode = RahFlowNode | GroupFlowNode;
+type TickFlowNode = RFNode<RahTickData, 'rahTick'>;
+type MapFlowNode = RahFlowNode | GroupFlowNode | TickFlowNode;
 
-const nodeTypes = { rahNode: RahNode, rahGroup: RahGroup };
+/** Decorations drawn behind the graph: group outlines and (timeline) date ticks. */
+interface MapOverlay {
+  groups: MapGroup[];
+  /** Rounded-rectangle lanes instead of hulls (timeline). */
+  bands: boolean;
+  ticks: TickFlowNode[];
+}
+
+const EMPTY_OVERLAY: MapOverlay = { groups: [], bands: false, ticks: [] };
+
+const nodeTypes = { rahNode: RahNode, rahGroup: RahGroup, rahTick: RahTick };
+const OVERVIEW_LAYOUT_KEY = 'ui.map.overviewLayout.v1';
+const LAYOUT_OPTIONS: Array<SegmentedOption<OverviewLayout>> = [
+  { value: 'grouped', label: 'Grouped', icon: <Boxes size={13} />, title: 'Grouped: topics pulled together, with links between them' },
+  { value: 'network', label: 'Network', icon: <Network size={13} />, title: 'Network: pure link structure, no grouping' },
+  { value: 'islands', label: 'Islands', icon: <LayoutGrid size={13} />, title: 'Islands: each topic in its own region' },
+  { value: 'original', label: 'Original', icon: <CircleDot size={13} />, title: 'Original: most-linked notes in the centre' },
+  { value: 'timeline', label: 'Timeline', icon: <ListStart size={13} />, title: 'Timeline: notes by creation date, one row per topic' },
+];
+
 // Communities smaller than this get a colour accent but no halo, to avoid clutter.
 const MIN_HALO_MEMBERS = 3;
 
@@ -61,9 +91,10 @@ function isRahNode(node: MapFlowNode): node is RahFlowNode {
  * Rebuild the group halo nodes around the current node positions. Halos come first in
  * the array and sit at zIndex -1 so they render behind the graph.
  */
-function withGroupHalos(nodes: MapFlowNode[], groups: MapGroup[]): MapFlowNode[] {
+function withGroupHalos(nodes: MapFlowNode[], overlay: MapOverlay): MapFlowNode[] {
+  const { groups, bands, ticks } = overlay;
   const rahNodes = nodes.filter(isRahNode);
-  if (groups.length === 0) return rahNodes;
+  if (groups.length === 0) return [...ticks, ...rahNodes];
 
   const byId = new Map(rahNodes.map((node) => [node.id, node]));
   const halos: GroupFlowNode[] = [];
@@ -79,7 +110,7 @@ function withGroupHalos(nodes: MapFlowNode[], groups: MapGroup[]): MapFlowNode[]
         }]
         : [];
     });
-    const hull = groupHull(rects);
+    const hull = bands ? groupBand(rects) : groupHull(rects);
     if (!hull) continue;
     halos.push({
       id: group.id,
@@ -94,7 +125,7 @@ function withGroupHalos(nodes: MapFlowNode[], groups: MapGroup[]): MapFlowNode[]
       zIndex: -1,
     });
   }
-  return [...halos, ...rahNodes];
+  return [...ticks, ...halos, ...rahNodes];
 }
 const edgeTypes = { rahEdge: RahEdge };
 
@@ -122,6 +153,9 @@ function MapPaneInner({
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
   const reducedMotion = usePrefersReducedMotion();
+  const [storedLayout, setOverviewLayout] = usePersistentState<OverviewLayout>(OVERVIEW_LAYOUT_KEY, 'grouped');
+  // Guard against stale or hand-edited storage values.
+  const overviewLayout: OverviewLayout = isOverviewLayout(storedLayout) ? storedLayout : 'grouped';
 
   const [baseNodes, setBaseNodes] = useState<DbNode[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<DbNode[]>([]);
@@ -256,16 +290,44 @@ function MapPaneInner({
     return describeGroups(detectCommunities(ids, links), byId, degreeMap);
   }, [baseNodes, dbEdges, degreeMap]);
 
-  // Halos are drawn in the overview only; the focused view keeps its hop rings.
+  // Outlines are drawn in the overview only (and only for layouts that use them); the
+  // focused view keeps its hop rings.
   const haloGroups = useMemo(
-    () => (viewMode === 'overview'
+    () => (viewMode === 'overview' && OUTLINED_LAYOUTS.has(overviewLayout)
       ? withUngroupedAsUnlinked(groups, visibleNodes)
         // Unlinked notes are not a community, so they get no outline.
         .filter((group) => group.memberIds.length >= MIN_HALO_MEMBERS && group.index !== UNLINKED)
       : []),
-    [groups, viewMode, visibleNodes],
+    [groups, overviewLayout, viewMode, visibleNodes],
   );
-  const haloGroupsRef = useRef<MapGroup[]>([]);
+  // Timeline date axis (ticks with guide lines through the lanes).
+  const timelineTicks = useMemo((): TickFlowNode[] => {
+    if (viewMode !== 'overview' || overviewLayout !== 'timeline') return [];
+    const timeline = computeTimelineLayout(
+      withUngroupedAsUnlinked(groups, visibleNodes),
+      createdAtTimes(visibleNodes),
+      LAYOUT_CENTER_X,
+      LAYOUT_CENTER_Y,
+    );
+    const axisGap = 48;
+    return timeline.ticks.map((tick, i) => ({
+      id: `tick-${i}`,
+      type: 'rahTick' as const,
+      position: { x: tick.x, y: timeline.top - axisGap },
+      data: { label: tick.label, lineHeight: timeline.height + axisGap - 20 },
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -2,
+    }));
+  }, [groups, overviewLayout, viewMode, visibleNodes]);
+
+  const overlay = useMemo((): MapOverlay => ({
+    groups: haloGroups,
+    bands: overviewLayout === 'timeline',
+    ticks: timelineTicks,
+  }), [haloGroups, overviewLayout, timelineTicks]);
+  const overlayRef = useRef<MapOverlay>(EMPTY_OVERLAY);
 
   // Target layout: where each node should come to rest for the current view.
   const layoutNodes = useMemo(
@@ -276,10 +338,11 @@ function MapPaneInner({
       adjacency,
       focusedGraph,
       groups,
+      overviewLayout,
       centerX: LAYOUT_CENTER_X,
       centerY: LAYOUT_CENTER_Y,
     }),
-    [adjacency, degreeMap, focusedGraph, groups, viewMode, visibleNodes],
+    [adjacency, degreeMap, focusedGraph, groups, overviewLayout, viewMode, visibleNodes],
   );
 
   const layoutEdges = useMemo(
@@ -302,7 +365,7 @@ function MapPaneInner({
         if (!position || (position.x === node.position.x && position.y === node.position.y)) return node;
         return { ...node, position };
       }),
-      haloGroupsRef.current,
+      overlayRef.current,
     ));
   }, [setRfNodes]);
 
@@ -311,7 +374,7 @@ function MapPaneInner({
   useEffect(() => {
     const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
     const links = layoutEdges.map((edge): [string, string] => [edge.source, edge.target]);
-    haloGroupsRef.current = haloGroups;
+    overlayRef.current = overlay;
     const start = springLayout.retarget(targets, links);
 
     setRfNodes((prev) => {
@@ -322,10 +385,10 @@ function MapPaneInner({
         type: 'rahNode' as const,
         position: start.get(node.id) ?? node.position,
       }));
-      return withGroupHalos(nextNodes, haloGroups);
+      return withGroupHalos(nextNodes, overlay);
     });
     setRfEdges(layoutEdges);
-  }, [haloGroups, layoutEdges, layoutNodes, setRfEdges, setRfNodes, springLayout]);
+  }, [layoutEdges, layoutNodes, overlay, setRfEdges, setRfNodes, springLayout]);
 
   useEffect(() => {
     if (!focusedGraph) {
@@ -460,6 +523,8 @@ function MapPaneInner({
         }));
         if (halo) include(halo.x, halo.y - NODE_APPROX_HEIGHT / 2, halo.width, halo.height + NODE_APPROX_HEIGHT / 2);
       });
+      // Timeline date labels sit above the top lane.
+      timelineTicks.forEach((tick) => include(tick.position.x - 40, tick.position.y, 80, NODE_APPROX_HEIGHT));
       reactFlowInstance.fitBounds(
         { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
         { padding: 0.18, duration: reducedMotion ? 0 : 420 },
@@ -467,7 +532,7 @@ function MapPaneInner({
     }, 80);
 
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId]);
+  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId, timelineTicks]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -611,6 +676,15 @@ function MapPaneInner({
             {viewMode === 'focused' ? 'Focused' : 'Overview'}
           </span>
 
+          {viewMode === 'overview' ? (
+            <SegmentedControl
+              ariaLabel="Map layout"
+              options={LAYOUT_OPTIONS}
+              value={overviewLayout}
+              onChange={setOverviewLayout}
+            />
+          ) : null}
+
           <div style={searchShell}>
             <input
               type="search"
@@ -688,7 +762,7 @@ function MapPaneInner({
                 style={{ background: 'var(--rah-bg-panel)', border: '1px solid var(--rah-border)', borderRadius: 6 }}
                 maskColor={theme === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.7)'}
                 nodeColor={(node) => {
-                  if (node.type === 'rahGroup') return 'transparent';
+                  if (node.type === 'rahGroup' || node.type === 'rahTick') return 'transparent';
                   const data = node.data as RahNodeData | undefined;
                   switch (data?.role) {
                     case 'selected':

@@ -1,9 +1,19 @@
 import type { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import type { Node as RFNode, Edge as RFEdge } from '@xyflow/react';
 import { UNLINKED, type CommunityResult } from './communities';
-import { computeForceLayout } from './forceLayout';
+import { computeForceLayout, DEFAULT_FORCE_LAYOUT_OPTIONS } from './forceLayout';
 
 export type MapViewMode = 'overview' | 'focused';
+
+/** How the overview is laid out (the focused view always uses hop rings). */
+export type OverviewLayout = 'grouped' | 'network' | 'islands' | 'original' | 'timeline';
+export const OVERVIEW_LAYOUTS: OverviewLayout[] = ['grouped', 'network', 'islands', 'original', 'timeline'];
+/** Layouts that draw community outlines. */
+export const OUTLINED_LAYOUTS: ReadonlySet<OverviewLayout> = new Set(['grouped', 'islands', 'timeline']);
+
+export function isOverviewLayout(value: unknown): value is OverviewLayout {
+  return typeof value === 'string' && (OVERVIEW_LAYOUTS as string[]).includes(value);
+}
 export type MapNodeRole = 'overview' | 'selected' | 'first-hop' | 'second-hop';
 
 export interface FocusedGraph {
@@ -200,6 +210,8 @@ function buildForceOverviewLayout(
   adjacency: Map<number, Set<number>>,
   centerX: number,
   centerY: number,
+  /** 0 gives the "Network" layout: links only, no pull toward group centroids. */
+  groupGravity: number = DEFAULT_FORCE_LAYOUT_OPTIONS.groupGravity,
 ): Map<string, Point> {
   const seedTopLeft = buildGroupedOverviewLayout(groups, centerX, centerY);
   const ids = groups.flatMap((group) => group.memberIds);
@@ -222,7 +234,10 @@ function buildForceOverviewLayout(
   const half = { x: NODE_BOX.width / 2, y: NODE_BOX.height / 2 };
   const seedCentres = new Map<string, Point>();
   seedTopLeft.forEach((point, id) => seedCentres.set(id, { x: point.x + half.x, y: point.y + half.y }));
-  const centres = computeForceLayout(ids, links, groupOf, seedCentres, { x: centerX, y: centerY });
+  const centres = computeForceLayout(ids, links, groupOf, seedCentres, { x: centerX, y: centerY }, {
+    ...DEFAULT_FORCE_LAYOUT_OPTIONS,
+    groupGravity,
+  });
 
   const positions = new Map<string, Point>();
   centres.forEach((point, id) => positions.set(id, { x: point.x - half.x, y: point.y - half.y }));
@@ -316,6 +331,249 @@ export function groupHull(
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY, path };
 }
 
+export interface TimelineTick {
+  /** Flow x of the tick line. */
+  x: number;
+  label: string;
+}
+
+export interface TimelineLayout {
+  /** Top-left node positions. */
+  positions: Map<string, Point>;
+  /** Date ticks along the time axis. */
+  ticks: TimelineTick[];
+  /** Vertical extent of the lanes, for drawing tick lines. */
+  top: number;
+  height: number;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Created-at times in ms for nodes with a parseable date. */
+export function createdAtTimes(nodes: DbNode[]): Map<string, number> {
+  return new Map(nodes.flatMap((node): Array<[string, number]> => {
+    const time = Date.parse(node.created_at);
+    return Number.isFinite(time) ? [[String(node.id), time]] : [];
+  }));
+}
+
+function timelineTicks(minTime: number, maxTime: number, toX: (time: number) => number): TimelineTick[] {
+  const span = maxTime - minTime;
+  const ticks: TimelineTick[] = [];
+  const start = new Date(minTime);
+  if (span > 120 * DAY_MS) {
+    // Monthly: first of each month after the start.
+    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    while (cursor.getTime() <= maxTime) {
+      ticks.push({
+        x: toX(cursor.getTime()),
+        label: cursor.toLocaleDateString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }),
+      });
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+  } else {
+    // Weekly for shorter spans, daily for very short ones.
+    const step = span > 21 * DAY_MS ? 7 * DAY_MS : DAY_MS;
+    const first = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()) + DAY_MS;
+    for (let time = first; time <= maxTime; time += step) {
+      ticks.push({
+        x: toX(time),
+        label: new Date(time).toLocaleDateString('en', { day: 'numeric', month: 'short', timeZone: 'UTC' }),
+      });
+    }
+  }
+  return ticks;
+}
+
+/**
+ * Timeline: one horizontal lane per group (largest first, Unlinked last), with each note
+ * placed left-to-right by when it was created. Notes that would overlap in a lane wrap
+ * onto extra rows. Also returns date ticks for the time axis.
+ */
+export function computeTimelineLayout(
+  groups: MapGroup[],
+  createdAt: Map<string, number>,
+  centerX: number,
+  centerY: number,
+): TimelineLayout {
+  const positions = new Map<string, Point>();
+  const times = [...createdAt.values()];
+  if (times.length === 0) return { positions, ticks: [], top: centerY, height: 0 };
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const span = Math.max(maxTime - minTime, 1);
+  const totalNodes = groups.reduce((sum, group) => sum + group.memberIds.length, 0);
+  // Wide enough that notes created on the same few days do not stack into tall columns.
+  const width = Math.max(1600, totalNodes * 28);
+  const left = centerX - width / 2;
+  const toX = (time: number) => left + ((time - minTime) / span) * width;
+  const slotWidth = NODE_BOX.width + 12;
+  const rowHeight = NODE_BOX.height + 14;
+  const laneGap = 56;
+
+  const lanes: Array<{ placed: Array<{ id: string; x: number; row: number }>; rows: number }> = [];
+  const ordered = [...groups].sort((a, b) => (a.index === UNLINKED ? 1 : b.index === UNLINKED ? -1 : a.index - b.index));
+  for (const group of ordered) {
+    const members = [...group.memberIds].sort((a, b) => (createdAt.get(a) ?? minTime) - (createdAt.get(b) ?? minTime));
+    const rowEnds: number[] = [];
+    const placed: Array<{ id: string; x: number; row: number }> = [];
+    for (const id of members) {
+      const x = toX(createdAt.get(id) ?? minTime);
+      let row = rowEnds.findIndex((end) => x >= end);
+      if (row === -1) {
+        row = rowEnds.length;
+        rowEnds.push(-Infinity);
+      }
+      rowEnds[row] = x + slotWidth;
+      placed.push({ id, x, row });
+    }
+    lanes.push({ placed, rows: Math.max(rowEnds.length, 1) });
+  }
+
+  const height = lanes.reduce((sum, lane) => sum + lane.rows * rowHeight, 0) + laneGap * Math.max(lanes.length - 1, 0);
+  const top = centerY - height / 2;
+  let laneTop = top;
+  for (const lane of lanes) {
+    for (const { id, x, row } of lane.placed) {
+      positions.set(id, { x, y: laneTop + row * rowHeight });
+    }
+    laneTop += lane.rows * rowHeight + laneGap;
+  }
+  return { positions, ticks: timelineTicks(minTime, maxTime, toX), top, height };
+}
+
+// Upstream's original overview layout (centrality rings), kept as the "Original" option.
+function buildRingOverviewLayout(
+  nodes: DbNode[],
+  adjacency: Map<number, Set<number>>,
+  degreeMap: Map<number, number>,
+  centerX: number,
+  centerY: number,
+): Map<string, Point> {
+  const positions = new Map<string, Point>();
+  const sortNodesByWeight = (left: DbNode, right: DbNode) => {
+    const degreeDiff = (degreeMap.get(right.id) ?? right.edge_count ?? 0) - (degreeMap.get(left.id) ?? left.edge_count ?? 0);
+    return degreeDiff !== 0 ? degreeDiff : left.id - right.id;
+  };
+
+  const sortedNodes = [...nodes].sort(sortNodesByWeight);
+  if (sortedNodes.length === 0) {
+    return positions;
+  }
+
+  const maxDegree = Math.max(...sortedNodes.map((node) => degreeMap.get(node.id) ?? node.edge_count ?? 0), 1);
+  const minRadius = 24;
+  const maxRadius = Math.max(280, Math.min(520, 140 + sortedNodes.length * 2.2));
+  const nodeIds = sortedNodes.map((node) => node.id);
+  const state = new Map<number, { x: number; y: number; vx: number; vy: number; targetRadius: number; mass: number }>();
+
+  sortedNodes.forEach((node, index) => {
+    const degree = degreeMap.get(node.id) ?? node.edge_count ?? 0;
+    const centrality = degree / maxDegree;
+    const targetRadius = minRadius + (1 - centrality) * (maxRadius - minRadius);
+    const angle = (index / Math.max(sortedNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
+
+    state.set(node.id, {
+      x: centerX + Math.cos(angle) * targetRadius,
+      y: centerY + Math.sin(angle) * targetRadius,
+      vx: 0,
+      vy: 0,
+      targetRadius,
+      mass: 1 + centrality * 1.8,
+    });
+  });
+
+  const iterations = 140;
+  for (let step = 0; step < iterations; step += 1) {
+    const alpha = 1 - step / iterations;
+
+    for (let i = 0; i < nodeIds.length; i += 1) {
+      const leftId = nodeIds[i];
+      const left = state.get(leftId);
+      if (!left) continue;
+
+      for (let j = i + 1; j < nodeIds.length; j += 1) {
+        const rightId = nodeIds[j];
+        const right = state.get(rightId);
+        if (!right) continue;
+
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const distanceSquared = dx * dx + dy * dy + 0.01;
+        const distance = Math.sqrt(distanceSquared);
+        const repulsion = (2200 * alpha) / distanceSquared;
+        const fx = (dx / distance) * repulsion;
+        const fy = (dy / distance) * repulsion;
+
+        left.vx -= fx / left.mass;
+        left.vy -= fy / left.mass;
+        right.vx += fx / right.mass;
+        right.vy += fy / right.mass;
+      }
+    }
+
+    sortedNodes.forEach((node) => {
+      const current = state.get(node.id);
+      if (!current) return;
+
+      for (const neighbourId of adjacency.get(node.id) ?? []) {
+        if (!state.has(neighbourId) || neighbourId <= node.id) continue;
+
+        const neighbour = state.get(neighbourId);
+        if (!neighbour) continue;
+
+        const dx = neighbour.x - current.x;
+        const dy = neighbour.y - current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const desired = 70 + Math.min(
+          Math.abs(current.targetRadius - neighbour.targetRadius) * 0.35 + 24,
+          150,
+        );
+        const pull = (distance - desired) * 0.0048 * alpha;
+        const fx = (dx / distance) * pull;
+        const fy = (dy / distance) * pull;
+
+        current.vx += fx;
+        current.vy += fy;
+        neighbour.vx -= fx;
+        neighbour.vy -= fy;
+      }
+    });
+
+    sortedNodes.forEach((node) => {
+      const current = state.get(node.id);
+      if (!current) return;
+
+      const dx = current.x - centerX;
+      const dy = current.y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+      const radialError = distance - current.targetRadius;
+      const radialPull = radialError * 0.0075;
+
+      current.vx -= (dx / distance) * radialPull;
+      current.vy -= (dy / distance) * radialPull;
+
+      if (current.targetRadius <= minRadius + 8) {
+        current.vx += (centerX - current.x) * 0.0035;
+        current.vy += (centerY - current.y) * 0.0035;
+      }
+
+      current.vx *= 0.86;
+      current.vy *= 0.86;
+      current.x += current.vx;
+      current.y += current.vy;
+    });
+  }
+
+  sortedNodes.forEach((node) => {
+    const current = state.get(node.id);
+    if (!current) return;
+    positions.set(String(node.id), { x: current.x, y: current.y });
+  });
+
+  return positions;
+}
+
 function buildFocusedLayout(
   nodes: DbNode[],
   focusedGraph: FocusedGraph,
@@ -383,23 +641,46 @@ export function toRFNodes(params: {
   focusedGraph: FocusedGraph | null;
   /** Groups for the overview layout and node colouring (see describeGroups). */
   groups: MapGroup[];
+  /** Overview layout style; the focused view ignores it. Defaults to 'grouped'. */
+  overviewLayout?: OverviewLayout;
   centerX: number;
   centerY: number;
 }): RFNode<RahNodeData>[] {
   const { nodes, viewMode, degreeMap, adjacency, focusedGraph, groups, centerX, centerY } = params;
+  const overviewLayout = params.overviewLayout ?? 'grouped';
 
+  // The original layout predates groups, so it shows no community colours.
   const groupOf = new Map<string, number>();
-  groups.forEach((group) => group.memberIds.forEach((id) => groupOf.set(id, group.index)));
+  if (overviewLayout !== 'original' || focusedGraph) {
+    groups.forEach((group) => group.memberIds.forEach((id) => groupOf.set(id, group.index)));
+  }
 
-  const positions = viewMode === 'focused' && focusedGraph
-    ? buildFocusedLayout(nodes, focusedGraph, adjacency, centerX, centerY)
-    : buildForceOverviewLayout(
-      // Only lay out groups' visible members; nodes outside any group join "Unlinked".
-      withUngroupedAsUnlinked(groups, nodes),
-      adjacency,
-      centerX,
-      centerY,
-    );
+  // Only lay out groups' visible members; nodes outside any group join "Unlinked".
+  const visibleGroups = () => withUngroupedAsUnlinked(groups, nodes);
+  let positions: Map<string, Point>;
+  if (viewMode === 'focused' && focusedGraph) {
+    positions = buildFocusedLayout(nodes, focusedGraph, adjacency, centerX, centerY);
+  } else {
+    switch (overviewLayout) {
+      case 'network':
+        positions = buildForceOverviewLayout(visibleGroups(), adjacency, centerX, centerY, 0);
+        break;
+      case 'islands':
+        positions = buildGroupedOverviewLayout(visibleGroups(), centerX, centerY);
+        break;
+      case 'original':
+        positions = buildRingOverviewLayout(nodes, adjacency, degreeMap, centerX, centerY);
+        break;
+      case 'timeline':
+        // Notes with unparseable dates fall back to the start of the timeline.
+        positions = computeTimelineLayout(visibleGroups(), createdAtTimes(nodes), centerX, centerY).positions;
+        break;
+      case 'grouped':
+      default:
+        positions = buildForceOverviewLayout(visibleGroups(), adjacency, centerX, centerY);
+        break;
+    }
+  }
 
   return nodes.map((node) => {
     const role: MapNodeRole = focusedGraph
@@ -486,4 +767,30 @@ export function toRFEdges(params: {
         zIndex: touchesSelected ? 10 : 1,
       };
     });
+}
+
+/**
+ * Rounded-rectangle outline around a group of node boxes, used for timeline lanes, where
+ * a convex hull of a stair-stepped lane would come out as a misleading triangle.
+ */
+export function groupBand(
+  rects: Array<{ x: number; y: number; width: number; height: number }>,
+  padding = HALO_PADDING,
+  radius = 14,
+): GroupHull | null {
+  if (rects.length === 0) return null;
+  const minX = Math.min(...rects.map((rect) => rect.x)) - padding;
+  const minY = Math.min(...rects.map((rect) => rect.y)) - padding;
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width)) + padding;
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height)) + padding;
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const r = Math.min(radius, width / 2, height / 2);
+  const path = [
+    `M ${r} 0`, `H ${width - r}`, `Q ${width} 0 ${width} ${r}`,
+    `V ${height - r}`, `Q ${width} ${height} ${width - r} ${height}`,
+    `H ${r}`, `Q 0 ${height} 0 ${height - r}`,
+    `V ${r}`, `Q 0 0 ${r} 0`, 'Z',
+  ].join(' ');
+  return { x: minX, y: minY, width, height, path };
 }

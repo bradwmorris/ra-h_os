@@ -13,6 +13,9 @@ import {
 } from './springLayout';
 
 const FRAME_MS = 1000 / 60;
+// Largest single simulation step (in 60 fps frames) and most sub-steps per animation frame.
+const MAX_SUBSTEP = 1.5;
+const MAX_SUBSTEPS = 40;
 
 export interface UseSpringLayoutOptions {
   /** Called with every body's position after each simulation frame. */
@@ -65,7 +68,16 @@ export function useSpringLayout({
     const dt = last === null ? 1 : (time - last) / FRAME_MS;
     lastTimeRef.current = time;
 
-    const moving = stepSpring(stateRef.current, paramsRef.current, dt);
+    // When frames arrive late (slow machine, throttled tab), catch up with several small
+    // sub-steps rather than one big one, so motion takes about the same wall-clock time
+    // and each step stays numerically stable. Positions are published once per frame.
+    const substeps = Math.min(Math.max(Math.ceil(dt / MAX_SUBSTEP), 1), MAX_SUBSTEPS);
+    const stepDt = Math.min(dt, MAX_SUBSTEP * MAX_SUBSTEPS) / substeps;
+    let moving = false;
+    for (let i = 0; i < substeps; i += 1) {
+      moving = stepSpring(stateRef.current, paramsRef.current, stepDt);
+      if (!moving) break;
+    }
     onFrameRef.current(springPositions(stateRef.current));
 
     if (moving) {

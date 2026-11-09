@@ -3,10 +3,16 @@ import type { Node as DbNode } from '@/types/database';
 import { UNLINKED } from '@/components/panes/map/communities';
 import { DEFAULT_FORCE_LAYOUT_OPTIONS } from '@/components/panes/map/forceLayout';
 import {
+  computeTimelineLayout,
+  createdAtTimes,
+  groupBand,
   groupHull,
   toRFNodes,
   withUngroupedAsUnlinked,
+  isOverviewLayout,
+  OVERVIEW_LAYOUTS,
   type MapGroup,
+  type OverviewLayout,
 } from '@/components/panes/map/utils';
 
 function dbNode(id: number): DbNode {
@@ -130,5 +136,97 @@ describe('overview layout', () => {
         expect(overlapping).toBe(false);
       }
     }
+  });
+});
+
+describe('overview layout modes', () => {
+  const dated = (id: number, day: number) => ({
+    id,
+    title: `Node ${id}`,
+    edge_count: 0,
+    created_at: new Date(Date.UTC(2026, 0, 1 + day)).toISOString(),
+  }) as unknown as DbNode;
+  // Group 0: nodes 1-4 (created out of id order), group 1: nodes 5-7, plus an unparseable date.
+  const nodes = [dated(1, 9), dated(2, 1), dated(3, 5), dated(4, 3), dated(5, 2), dated(6, 8), dated(7, 4)];
+  nodes.push({ ...dated(8, 0), created_at: 'not a date' } as unknown as DbNode);
+  const groups: MapGroup[] = [
+    { id: 'group-0', index: 0, memberIds: ['1', '2', '3', '4'], label: 'Node 1' },
+    { id: 'group-1', index: 1, memberIds: ['5', '6', '7', '8'], label: 'Node 5' },
+  ];
+  const adjacency = new Map<number, Set<number>>([
+    [1, new Set([2, 3, 4])], [2, new Set([1])], [3, new Set([1])], [4, new Set([1, 5])],
+    [5, new Set([4, 6, 7])], [6, new Set([5])], [7, new Set([5])],
+  ]);
+  const layout = (overviewLayout: OverviewLayout) => toRFNodes({
+    nodes, viewMode: 'overview', degreeMap: new Map(), adjacency, focusedGraph: null,
+    groups, overviewLayout, centerX: 0, centerY: 0,
+  });
+
+  it.each(OVERVIEW_LAYOUTS)('%s gives every node a finite, deterministic position', (mode) => {
+    const first = layout(mode);
+    expect(first).toHaveLength(nodes.length);
+    first.forEach((node) => {
+      expect(Number.isFinite(node.position.x) && Number.isFinite(node.position.y)).toBe(true);
+    });
+    expect(layout(mode).map((node) => node.position)).toEqual(first.map((node) => node.position));
+  });
+
+  it('original layout shows no group colours; the others keep them', () => {
+    expect(layout('original').every((node) => node.data.group === null)).toBe(true);
+    expect(layout('grouped').find((node) => node.id === '1')?.data.group).toBe(0);
+  });
+
+  it('timeline orders each lane left to right by creation date, one lane per group', () => {
+    const byId = new Map(layout('timeline').map((node) => [node.id, node.position]));
+    const x = (id: string) => byId.get(id)!.x;
+    // Group 0 by date: 2 (day 1), 4 (day 3), 3 (day 5), 1 (day 9).
+    expect(x('2')).toBeLessThan(x('4'));
+    expect(x('4')).toBeLessThan(x('3'));
+    expect(x('3')).toBeLessThan(x('1'));
+    // Lanes are stacked: every group-1 node sits below every group-0 node.
+    const lowestOfGroup0 = Math.max(...['1', '2', '3', '4'].map((id) => byId.get(id)!.y));
+    ['5', '6', '7'].forEach((id) => expect(byId.get(id)!.y).toBeGreaterThan(lowestOfGroup0));
+  });
+
+  it('network differs from grouped (no group pull)', () => {
+    const grouped = layout('grouped').map((node) => node.position);
+    const network = layout('network').map((node) => node.position);
+    expect(network).not.toEqual(grouped);
+  });
+
+  it('recognises valid layout names only', () => {
+    expect(isOverviewLayout('timeline')).toBe(true);
+    expect(isOverviewLayout('spiral')).toBe(false);
+    expect(isOverviewLayout(undefined)).toBe(false);
+  });
+});
+
+describe('timeline helpers', () => {
+  it('computes monthly ticks inside the time range for spans over four months', () => {
+    const groups: MapGroup[] = [{ id: 'group-0', index: 0, memberIds: ['a', 'b'], label: 'A' }];
+    const times = new Map([['a', Date.UTC(2026, 4, 13)], ['b', Date.UTC(2026, 10, 9)]]);
+    const timeline = computeTimelineLayout(groups, times, 0, 0);
+    expect(timeline.ticks.map((tick) => tick.label)).toEqual(['Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026', 'Nov 2026']);
+    const xa = timeline.positions.get('a')!.x;
+    const xb = timeline.positions.get('b')!.x;
+    timeline.ticks.forEach((tick) => {
+      expect(tick.x).toBeGreaterThan(xa);
+      expect(tick.x).toBeLessThanOrEqual(xb);
+    });
+  });
+
+  it('skips unparseable dates', () => {
+    const nodes = [
+      { id: 1, created_at: '2026-01-01T00:00:00Z' },
+      { id: 2, created_at: 'nope' },
+    ] as unknown as DbNode[];
+    expect([...createdAtTimes(nodes).keys()]).toEqual(['1']);
+  });
+
+  it('draws timeline lanes as rounded rectangles enclosing every box', () => {
+    const band = groupBand([{ x: 0, y: 0, width: 50, height: 20 }, { x: 200, y: 60, width: 50, height: 20 }], 10)!;
+    expect(band).toMatchObject({ x: -10, y: -10, width: 270, height: 100 });
+    expect(band.path.startsWith('M ')).toBe(true);
+    expect(band.path.endsWith('Z')).toBe(true);
   });
 });

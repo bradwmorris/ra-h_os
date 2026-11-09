@@ -245,3 +245,29 @@ html[data-theme="light"] .rah-map-wrapper {
 .rah-map-node--grouped .rah-map-node__icon svg {
   stroke: var(--rah-map-group-color);
 }
+
+/* Timeline date axis: a label with a faint guide line down through the lanes. */
+.rah-map-wrapper .react-flow__node-rahTick {
+  pointer-events: none !important;
+}
+
+.rah-map-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rah-map-tick__label {
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rah-text-muted);
+  white-space: nowrap;
+  margin-bottom: 6px;
+}
+
+.rah-map-tick__line {
+  width: 0;
+  border-left: 1px dashed var(--rah-border-strong);
+  opacity: 0.7;
+}
