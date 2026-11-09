@@ -3,6 +3,7 @@ import type { Node as DbNode } from '@/types/database';
 import { UNLINKED } from '@/components/panes/map/communities';
 import { DEFAULT_FORCE_LAYOUT_OPTIONS } from '@/components/panes/map/forceLayout';
 import {
+  applyDragOverrides,
   computeTimelineLayout,
   createdAtTimes,
   groupBand,
@@ -280,5 +281,17 @@ describe('overview edge colours', () => {
 
     const neutral = toRFEdges({ dbEdges, nodeIds: new Set(['1', '2', '3']), focusedGraph: null });
     expect(neutral[0].style?.stroke).toBe('#475569');
+  });
+});
+
+describe('applyDragOverrides', () => {
+  it('keeps dragged positions over regenerated targets and prunes overrides for missing nodes', () => {
+    const targets = new Map([['a', { x: 0, y: 0 }], ['b', { x: 10, y: 10 }]]);
+    const overrides = new Map([['a', { x: 500, y: 500 }], ['gone', { x: 1, y: 1 }]]);
+    applyDragOverrides(targets, overrides);
+    expect(targets.get('a')).toEqual({ x: 500, y: 500 });
+    expect(targets.get('b')).toEqual({ x: 10, y: 10 });
+    expect(overrides.has('gone')).toBe(false);
+    expect(overrides.has('a')).toBe(true);
   });
 });

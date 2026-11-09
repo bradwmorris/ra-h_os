@@ -37,6 +37,7 @@ import {
   toRFNodes,
   toRFEdges,
   withUngroupedAsUnlinked,
+  applyDragOverrides,
   NODE_BOX,
   NODE_LIMIT,
   type MapGroup,
@@ -140,6 +141,10 @@ const LAYOUT_CENTER_Y = 420;
 // node size (map-styles.css caps .rah-map-node at 168px wide) so labels stay in view.
 const NODE_MAX_WIDTH = 168;
 const NODE_APPROX_HEIGHT = 36;
+// Low enough that the widest layout (Timeline, ~28px per note) still fits a narrow pane.
+const MIN_ZOOM = 0.03;
+// Below this pane width the layout switcher shows icons only (labels stay as tooltips).
+const NARROW_PANE_WIDTH = 900;
 // Moves under this many pixels count as a click (focus the node), not a drag.
 const NODE_DRAG_THRESHOLD = 4;
 
@@ -155,6 +160,18 @@ function MapPaneInner({
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
   const reducedMotion = usePrefersReducedMotion();
+  // Track the pane's width so the toolbar can compact itself in two-/three-pane layouts.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [narrowPane, setNarrowPane] = useState(false);
+  useEffect(() => {
+    const element = paneRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrowPane(entry.contentRect.width < NARROW_PANE_WIDTH);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   // Labels show at the fitted (default) zoom and above; set after each camera fit.
   const [compactBelowZoom, setCompactBelowZoom] = useState(0);
   const rememberFittedZoom = useCallback(() => {
@@ -335,6 +352,8 @@ function MapPaneInner({
     ticks: timelineTicks,
   }), [haloGroups, overviewLayout, timelineTicks]);
   const overlayRef = useRef<MapOverlay>(EMPTY_OVERLAY);
+  const dragOverridesRef = useRef(new Map<string, Point>());
+  const viewKeyRef = useRef('');
 
   // Target layout: where each node should come to rest for the current view.
   const layoutNodes = useMemo(
@@ -389,7 +408,16 @@ function MapPaneInner({
   const springLayout = useSpringLayout({ onFrame: applyAnimatedPositions, reducedMotion });
 
   useEffect(() => {
+    // Positions the user dragged nodes to survive data updates (e.g. a note being edited)
+    // and are dropped only when the view itself changes: layout, overview/focused, or
+    // which node is focused.
+    const viewKey = `${viewMode}:${overviewLayout}:${focusedGraph?.selectedNodeId ?? ''}`;
+    if (viewKeyRef.current !== viewKey) {
+      dragOverridesRef.current.clear();
+      viewKeyRef.current = viewKey;
+    }
     const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
+    applyDragOverrides(targets, dragOverridesRef.current);
     const links = layoutEdges.map((edge): [string, string] => [edge.source, edge.target]);
     overlayRef.current = overlay;
     const start = springLayout.retarget(targets, links);
@@ -405,7 +433,7 @@ function MapPaneInner({
       return withGroupHalos(nextNodes, overlay);
     });
     setRfEdges(layoutEdges);
-  }, [layoutEdges, layoutNodes, overlay, setRfEdges, setRfNodes, springLayout]);
+  }, [focusedGraph, layoutEdges, layoutNodes, overlay, overviewLayout, setRfEdges, setRfNodes, springLayout, viewMode]);
 
   useEffect(() => {
     if (!focusedGraph) {
@@ -562,6 +590,19 @@ function MapPaneInner({
           const payload = JSON.parse(event.data);
 
           switch (payload.type) {
+            case 'NODE_CREATED': {
+              // Quick-add broadcasts a placeholder without an id; the real node follows.
+              const node = payload.data?.node as DbNode | undefined;
+              if (!node?.id) break;
+              // The overview holds the NODE_LIMIT best-connected notes; a brand-new note
+              // has no links yet, so it only joins while there is room.
+              setBaseNodes((prev) => (
+                prev.some((existing) => existing.id === node.id) || prev.length >= NODE_LIMIT
+                  ? prev
+                  : [...prev, node]
+              ));
+              break;
+            }
             case 'NODE_UPDATED': {
               const node = payload.data?.node as DbNode | undefined;
               if (!node?.id) break;
@@ -679,14 +720,15 @@ function MapPaneInner({
     if (!isRahNode(node)) return;
     springLayout.pin(node.id, node.position);
     springLayout.release(node.id);
+    dragOverridesRef.current.set(node.id, { ...node.position });
   }, [springLayout]);
 
   const fitVisibleNodes = useCallback(() => {
-    void reactFlowInstance.fitView({ padding: 0.2, duration: 260 }).then(rememberFittedZoom);
-  }, [reactFlowInstance, rememberFittedZoom]);
+    void reactFlowInstance.fitView({ padding: 0.2, duration: reducedMotion ? 0 : 260 }).then(rememberFittedZoom);
+  }, [reactFlowInstance, reducedMotion, rememberFittedZoom]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>
+    <div ref={paneRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>
       <PaneHeader slot={slot} onCollapse={onCollapse} onSwapPanes={onSwapPanes} tabBar={tabBar}>
         <div style={headerTools}>
           <span style={viewMode === 'focused' ? focusedBadge : overviewBadge}>
@@ -699,6 +741,7 @@ function MapPaneInner({
               options={LAYOUT_OPTIONS}
               value={overviewLayout}
               onChange={setOverviewLayout}
+              iconOnly={narrowPane}
             />
           ) : null}
 
@@ -761,7 +804,7 @@ function MapPaneInner({
               onNodeMouseLeave={handleNodeMouseLeave}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              minZoom={0.12}
+              minZoom={MIN_ZOOM}
               maxZoom={2.5}
               onNodeDragStart={handleNodeDrag}
               onNodeDrag={handleNodeDrag}
@@ -847,7 +890,9 @@ const emptyState: CSSProperties = {
 const headerTools: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  flexWrap: 'wrap',
   gap: 10,
+  minWidth: 0,
 };
 
 const overviewBadge: CSSProperties = {
@@ -869,7 +914,8 @@ const focusedBadge: CSSProperties = {
 
 const searchShell: CSSProperties = {
   position: 'relative',
-  width: 220,
+  flex: '0 1 220px',
+  minWidth: 120,
 };
 
 const searchInput: CSSProperties = {

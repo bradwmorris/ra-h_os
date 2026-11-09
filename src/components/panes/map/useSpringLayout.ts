@@ -127,6 +127,15 @@ export function useSpringLayout({
     wake();
   }, [wake]);
 
+  // Turning on reduced motion mid-animation stops it and jumps straight to the targets,
+  // rather than letting the running animation play out.
+  useEffect(() => {
+    if (!reducedMotion) return;
+    stop();
+    snapToTargets(stateRef.current);
+    onFrameRef.current(springPositions(stateRef.current));
+  }, [reducedMotion, stop]);
+
   useEffect(() => stop, [stop]);
 
   // Stable identity: callers list these controls in effect dependencies.

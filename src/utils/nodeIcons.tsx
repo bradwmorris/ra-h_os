@@ -66,9 +66,12 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   integration: Puzzle,
 };
 
-function typeIcon(type: unknown): LucideIcon | null {
+export function typeIcon(type: unknown): LucideIcon | null {
   if (typeof type !== 'string') return null;
-  return TYPE_ICONS[type.trim().toLowerCase().replace(/_/g, '-')] ?? null;
+  const key = type.trim().toLowerCase().replace(/_/g, '-');
+  // Own keys only: inherited names such as "constructor" or "__proto__" must fall
+  // through to the default icon rather than return a non-component.
+  return Object.prototype.hasOwnProperty.call(TYPE_ICONS, key) ? TYPE_ICONS[key] : null;
 }
 
 interface FaviconIconProps {

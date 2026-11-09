@@ -906,3 +906,15 @@ export function groupBand(
   ].join(' ');
   return { x: minX, y: minY, width, height, path };
 }
+
+/**
+ * Replace layout targets with positions the user dragged nodes to, so a data update
+ * (for example a note being edited) does not snap dragged nodes back. Overrides for
+ * nodes no longer in the layout (hidden or deleted) are pruned. Mutates both maps.
+ */
+export function applyDragOverrides(targets: Map<string, Point>, overrides: Map<string, Point>): void {
+  overrides.forEach((position, id) => {
+    if (targets.has(id)) targets.set(id, position);
+    else overrides.delete(id);
+  });
+}

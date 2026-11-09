@@ -24,6 +24,8 @@ export interface SpringBody {
   anchorY: number;
   /** Pinned bodies hold their position (e.g. while being dragged) and only exert force. */
   pinned: boolean;
+  /** Number of links attached; sets the body's mass (see stepSpring). */
+  degree: number;
 }
 
 export interface SpringLink {
@@ -47,6 +49,9 @@ export interface SpringParams {
   /** The simulation is settled when every speed and residual force is below this. */
   restThreshold: number;
 }
+
+// Largest stiffness/mass ratio that settles reliably at the step sizes useSpringLayout uses.
+const MAX_STABLE_STIFFNESS = 0.5;
 
 export const DEFAULT_SPRING_PARAMS: SpringParams = {
   anchorStrength: 0.035,
@@ -149,17 +154,21 @@ export function setSpringTargets(
   targets.forEach((anchor, id) => {
     const body = previous.get(id);
     if (body) {
-      next.set(id, { ...body, anchorX: anchor.x, anchorY: anchor.y });
+      next.set(id, { ...body, anchorX: anchor.x, anchorY: anchor.y, degree: 0 });
       return;
     }
     const start = spawnPoint(id, anchor, previous, links, options.bloomFrom);
-    next.set(id, { x: start.x, y: start.y, vx: 0, vy: 0, anchorX: anchor.x, anchorY: anchor.y, pinned: false });
+    next.set(id, { x: start.x, y: start.y, vx: 0, vy: 0, anchorX: anchor.x, anchorY: anchor.y, pinned: false, degree: 0 });
   });
 
   state.bodies = next;
   state.links = links
     .filter(([source, target]) => source !== target && next.has(source) && next.has(target))
     .map(([source, target]) => ({ source, target, rest: 0 }));
+  for (const link of state.links) {
+    next.get(link.source)!.degree += 1;
+    next.get(link.target)!.degree += 1;
+  }
   recomputeLinkRests(state);
 }
 
@@ -282,8 +291,13 @@ export function stepSpring(state: SpringState, params: SpringParams = DEFAULT_SP
       return;
     }
     const force = forces.get(id) ?? { x: 0, y: 0 };
-    body.vx = (body.vx + force.x * step) * damping;
-    body.vy = (body.vy + force.y * step) * damping;
+    // A body's effective stiffness grows with its links (each pulls on it). Explicit
+    // integration goes unstable once stiffness/mass is too high, so heavily linked hubs
+    // get proportionally more mass: they move less per step but always settle.
+    const stiffness = params.anchorStrength + params.linkStrength * body.degree;
+    const mass = Math.max(1, stiffness / MAX_STABLE_STIFFNESS);
+    body.vx = (body.vx + (force.x / mass) * step) * damping;
+    body.vy = (body.vy + (force.y / mass) * step) * damping;
     const speed = Math.hypot(body.vx, body.vy);
     if (speed > params.maxSpeed) {
       body.vx = (body.vx / speed) * params.maxSpeed;

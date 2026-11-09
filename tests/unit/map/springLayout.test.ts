@@ -166,3 +166,25 @@ describe('springLayout', () => {
     expect(runUntilSettled(state, 3000)).toBeLessThan(3000);
   });
 });
+
+describe('springLayout stability for highly linked nodes', () => {
+  it.each([1, 1.5])('settles a 199-link hub at step size %s', (dt) => {
+    const layout = new Map<string, Point>([['hub', { x: 0, y: 0 }]]);
+    const links: Array<[string, string]> = [];
+    for (let i = 0; i < 199; i += 1) {
+      const angle = (i / 199) * Math.PI * 2;
+      layout.set(`n${i}`, { x: Math.cos(angle) * 300, y: Math.sin(angle) * 300 });
+      links.push(['hub', `n${i}`]);
+    }
+    const state = createSpringState();
+    setSpringTargets(state, layout, links);
+    snapToTargets(state);
+    state.bodies.get('hub')!.x += 10;
+
+    let steps = 0;
+    while (steps < 1000 && stepSpring(state, undefined, dt)) steps += 1;
+    expect(steps).toBeLessThan(1000);
+    const hub = state.bodies.get('hub')!;
+    expect(Math.hypot(hub.x, hub.y)).toBeLessThan(1);
+  });
+});
