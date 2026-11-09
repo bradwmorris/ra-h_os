@@ -414,7 +414,9 @@ sign_native_modules() {
     exit 1
   fi
   local modules=(
-    "$DIST_ROOT/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+    # better-sqlite3 v13 (N-API) loads prebuilds/<platform>-<arch>.node; one per macOS arch.
+    "$DIST_ROOT/app/node_modules/better-sqlite3/prebuilds/darwin-arm64.node"
+    "$DIST_ROOT/app/node_modules/better-sqlite3/prebuilds/darwin-x64.node"
     "$DIST_ROOT/vendor/sqlite-extensions/vec0.dylib"
   )
 
@@ -506,7 +508,8 @@ write_version_metadata() {
   if [ -x "$RUNTIME_ROOT/bin/node" ]; then
     node_version="$("$RUNTIME_ROOT/bin/node" -v 2>/dev/null || echo "vUnknown")"
   else
-    node_version="v20.11.0"
+    # Keep in sync with the NODE_VERSION default in scripts/build-universal-node.sh.
+    node_version="v${NODE_VERSION:-24.22.2}"
   fi
 
   cat >"$DIST_ROOT/version.json" <<EOF

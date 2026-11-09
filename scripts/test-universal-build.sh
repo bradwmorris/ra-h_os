@@ -40,24 +40,41 @@ run_dual_arch_node() {
   fi
 }
 
+check_single_arch() {
+  local path="$1"
+  local expected="$2"
+  if ! file "$path" | grep -q "$expected"; then
+    echo "❌ $path is not a ${expected} binary" >&2
+    exit 1
+  fi
+}
+
 main() {
+  # better-sqlite3 v13 ships one N-API prebuild per arch instead of a lipo'd universal binary.
+  local bs3_prebuilds="$APP_DIR/node_modules/better-sqlite3/prebuilds"
+
   assert_exists "$NODE_BIN"
-  assert_exists "$APP_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+  assert_exists "$bs3_prebuilds/darwin-arm64.node"
+  assert_exists "$bs3_prebuilds/darwin-x64.node"
   assert_exists "$DIST_ROOT/vendor/sqlite-extensions/vec0.dylib"
 
-  echo "ℹ️  Verifying universal slices"
+  echo "ℹ️  Verifying binary architectures"
   check_universal "$NODE_BIN"
-  check_universal "$APP_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+  check_single_arch "$bs3_prebuilds/darwin-arm64.node" "arm64"
+  check_single_arch "$bs3_prebuilds/darwin-x64.node" "x86_64"
   check_universal "$DIST_ROOT/vendor/sqlite-extensions/vec0.dylib"
 
   echo "ℹ️  Running runtime smoke tests"
   run_dual_arch_node arm64 "console.log('arm64 runtime ok')"
   run_dual_arch_node x86_64 "console.log('x86 runtime ok')"
 
+  # The native addon loads lazily on the first Database construction, so open an
+  # in-memory database and run a query; a bare require() would not load it.
+  local bs3_smoke="const D=require('./node_modules/better-sqlite3'); const r=new D(':memory:').prepare('select 1 as ok').get(); if (r.ok!==1) throw new Error('query failed'); console.log('better-sqlite3 ' + process.arch + ' ok')"
   (
     cd "$APP_DIR"
-    run_dual_arch_node arm64 "require('./node_modules/better-sqlite3'); console.log('better-sqlite3 arm64 ok')"
-    run_dual_arch_node x86_64 "require('./node_modules/better-sqlite3'); console.log('better-sqlite3 x86 ok')"
+    run_dual_arch_node arm64 "$bs3_smoke"
+    run_dual_arch_node x86_64 "$bs3_smoke"
   )
 
   echo "✅ Universal build smoke test passed"
