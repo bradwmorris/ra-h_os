@@ -31,7 +31,7 @@ for arg in "$@"; do
     --dry-run)           DRY_RUN=true ;;
     --with-build-cache)  WITH_BUILD_CACHE=true ;;
     -h|--help)
-      sed -n '2,/^set -/p' "$0" | sed 's/^# \{0,1\}//' | head -n -1
+      sed -n '2,/^set -/p' "$0" | sed 's/^# \{0,1\}//' | sed '$d'   # portable "drop last line" (BSD head lacks -n -1)
       exit 0
       ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -92,13 +92,14 @@ remove_count=0
 if [[ -n "$RAH_IMAGES" ]]; then
   echo ""
   echo "Removing rah-test images..."
-  echo "$RAH_IMAGES" | xargs -r docker rmi -f && remove_count=$((remove_count+1)) || true
+  # No `xargs -r` (GNU-only); the enclosing -n check already guarantees input.
+  echo "$RAH_IMAGES" | xargs docker rmi -f && remove_count=$((remove_count+1)) || true
 fi
 
 if [[ -n "$BASE_IMAGES" ]]; then
   echo ""
   echo "Removing base distro images..."
-  echo "$BASE_IMAGES" | xargs -r docker rmi -f && remove_count=$((remove_count+1)) || true
+  echo "$BASE_IMAGES" | xargs docker rmi -f && remove_count=$((remove_count+1)) || true
 fi
 
 if [[ -n "$LOG_DIRS" ]]; then

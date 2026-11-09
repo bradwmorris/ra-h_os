@@ -1,28 +1,42 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 
-// Quote a token that contains whitespace or cmd.exe metacharacters.
+// `npm run setup:local` sets npm_execpath to npm's own CLI script. Running it with the
+// current Node binary avoids a shell entirely, so no argument is ever re-parsed by cmd.exe.
+const npmCli = process.env.npm_execpath && /^npm-cli\.c?js$/.test(path.basename(process.env.npm_execpath))
+  ? process.env.npm_execpath
+  : null;
+
+// Fallback quoting for cmd.exe. cmd has no reliable escape for `"` inside a quoted
+// token and expands %VAR% even inside quotes, so refuse such arguments rather than
+// build a command line they could break out of.
 function quoteArg(a) {
-  return /[\s"&|<>^()]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a;
+  const s = String(a);
+  if (/["%]/.test(s)) {
+    console.error(`[setup-local] Unsupported character in argument for the Windows shell fallback: ${s}`);
+    process.exit(1);
+  }
+  return /[\s&|<>^()!]/.test(s) ? `"${s}"` : s;
 }
 
 function run(command, args) {
-  // On Windows, npm/npx are .cmd shims that need a shell to launch (spawning a
-  // .cmd without shell throws EINVAL on patched Node), but Node 24 emits DEP0190
-  // when shell:true is combined with an args array. So on Windows we pass a
-  // single pre-quoted command line (no args array); elsewhere we spawn the
-  // binary directly with the args array and no shell.
-  const result = process.platform === 'win32'
-    ? spawnSync([command, ...args].map(quoteArg).join(' '), {
-        stdio: 'inherit',
-        env: process.env,
-        shell: true,
-      })
-    : spawnSync(command, args, {
-        stdio: 'inherit',
-        env: process.env,
-      });
+  let result;
+  if (command === 'npm' && npmCli) {
+    result = spawnSync(process.execPath, [npmCli, ...args], { stdio: 'inherit', env: process.env });
+  } else if (process.platform === 'win32') {
+    // Not launched via npm: npm is a .cmd shim that needs a shell (spawning a .cmd
+    // without one throws EINVAL on patched Node), and Node 24 emits DEP0190 for
+    // shell:true with an args array, so pass a single pre-quoted command line.
+    result = spawnSync([command, ...args].map(quoteArg).join(' '), {
+      stdio: 'inherit',
+      env: process.env,
+      shell: true,
+    });
+  } else {
+    result = spawnSync(command, args, { stdio: 'inherit', env: process.env });
+  }
 
   if (result.error) {
     console.error(`[setup-local] Failed to run ${command}: ${result.error.message}`);

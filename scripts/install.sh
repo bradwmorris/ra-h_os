@@ -27,6 +27,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$PROFILE" in
+  openai|qwen-local|llama-cpp) ;;
+  *) echo "Invalid --profile: '$PROFILE' (expected openai, qwen-local or llama-cpp)" >&2; _usage ;;
+esac
+
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[ra-h]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[ra-h]${NC} $*"; }

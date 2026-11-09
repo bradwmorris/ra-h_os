@@ -2,6 +2,7 @@
 # Usage: irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1 | iex
 # Or with options: & ([scriptblock]::Create((irm ...install.ps1))) -AiProfile qwen-local -LlmPort 8080 -EmbeddingPort 8081
 param(
+  [ValidateSet("openai", "qwen-local", "llama-cpp")]
   [string]$AiProfile     = "openai",
   [string]$InstallDir    = "ra-h_os",
   [int]   $LlmPort       = 8080,
