@@ -9,6 +9,7 @@ import {
   groupBand,
   groupHull,
   packDisconnectedComponents,
+  planCamera,
   toRFEdges,
   toRFNodes,
   withUngroupedAsUnlinked,
@@ -356,5 +357,56 @@ describe('groupHull containment', () => {
       ];
       corners.forEach((corner) => expect(inside(corner, polygon)).toBe(true));
     });
+  });
+});
+
+describe('planCamera', () => {
+  const targets = new Map([
+    ['a', { x: 0, y: 0 }],
+    ['b', { x: 400, y: 100 }],
+    ['c', { x: -200, y: 300 }],
+  ]);
+  const nodeSize = { width: 168, height: 36 };
+  const base = { targets, outlineGroups: [], ticks: [], nodeSize };
+
+  it('centres the focused note for automatic fits', () => {
+    expect(planCamera({ ...base, focusId: 'b', fitAll: false })).toEqual({ kind: 'center', x: 400, y: 100 });
+  });
+
+  it('frames everything for a manual fit, even in the focused view', () => {
+    const plan = planCamera({ ...base, focusId: 'b', fitAll: true });
+    expect(plan).toEqual({ kind: 'bounds', x: -200, y: 0, width: 400 + 168 + 200, height: 300 + 36 });
+  });
+
+  it('returns null when the focused note is not available yet, or there is nothing to frame', () => {
+    expect(planCamera({ ...base, focusId: 'missing', fitAll: false })).toBeNull();
+    expect(planCamera({ ...base, targets: new Map(), focusId: null, fitAll: true })).toBeNull();
+  });
+
+  it('includes outlines and timeline tick labels in the bounds', () => {
+    const withTick = planCamera({ ...base, focusId: null, fitAll: false, ticks: [{ x: 0, y: -300 }] });
+    expect(withTick?.kind).toBe('bounds');
+    expect(withTick && 'y' in withTick ? withTick.y : 0).toBe(-300);
+
+    const group: MapGroup = { id: 'group-0', index: 0, memberIds: ['a', 'b', 'c'], label: 'A' };
+    const plain = planCamera({ ...base, focusId: null, fitAll: false })!;
+    const outlined = planCamera({ ...base, focusId: null, fitAll: false, outlineGroups: [group] })!;
+    expect(outlined.kind === 'bounds' && plain.kind === 'bounds' && outlined.y).toBeLessThan(plain.kind === 'bounds' ? plain.y : 0);
+  });
+});
+
+describe('timeline without any valid dates', () => {
+  it('still places every note in its lane at the start of the timeline', () => {
+    const groups: MapGroup[] = [
+      { id: 'group-0', index: 0, memberIds: ['a', 'b'], label: 'A' },
+      { id: 'group-1', index: 1, memberIds: ['c'], label: 'C' },
+    ];
+    const timeline = computeTimelineLayout(groups, new Map(), 0, 0);
+    expect([...timeline.positions.keys()].sort()).toEqual(['a', 'b', 'c']);
+    const points = [...timeline.positions.values()];
+    // Everyone starts at the same (earliest) x, but no two notes share a position.
+    expect(new Set(points.map((p) => p.x)).size).toBe(1);
+    expect(new Set(points.map((p) => `${p.x},${p.y}`)).size).toBe(3);
+    expect(timeline.ticks).toEqual([]);
   });
 });

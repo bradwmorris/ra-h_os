@@ -507,9 +507,11 @@ export function computeTimelineLayout(
 ): TimelineLayout {
   const positions = new Map<string, Point>();
   const times = [...createdAt.values()];
-  if (times.length === 0) return { positions, ticks: [], top: centerY, height: 0 };
-  const minTime = Math.min(...times);
-  const maxTime = Math.max(...times);
+  if (groups.every((group) => group.memberIds.length === 0)) return { positions, ticks: [], top: centerY, height: 0 };
+  // With no valid dates at all, every note falls back to the start of the timeline (and
+  // still gets its own lane/row), rather than being left unplaced.
+  const minTime = times.length > 0 ? Math.min(...times) : 0;
+  const maxTime = times.length > 0 ? Math.max(...times) : 0;
   const span = Math.max(maxTime - minTime, 1);
   const totalNodes = groups.reduce((sum, group) => sum + group.memberIds.length, 0);
   // Wide enough that notes created on the same few days do not stack into tall columns.
@@ -548,7 +550,7 @@ export function computeTimelineLayout(
     }
     laneTop += lane.rows * rowHeight + laneGap;
   }
-  return { positions, ticks: timelineTicks(minTime, maxTime, toX), top, height };
+  return { positions, ticks: times.length > 0 ? timelineTicks(minTime, maxTime, toX) : [], top, height };
 }
 
 // Upstream's original overview layout (centrality rings), kept as the "Original" option.
@@ -932,4 +934,54 @@ export function applyDragOverrides(targets: Map<string, Point>, overrides: Map<s
     if (targets.has(id)) targets.set(id, position);
     else overrides.delete(id);
   });
+}
+
+export type CameraPlan =
+  | { kind: 'center'; x: number; y: number }
+  | { kind: 'bounds'; x: number; y: number; width: number; height: number };
+
+/**
+ * Decide what the camera should frame. Automatic fits in the focused view centre the
+ * focused note; a manual Fit (`fitAll`) always frames everything visible. Bounds use
+ * full-label node sizes and include community outlines and timeline tick labels.
+ * Returns null when there is nothing to frame yet (e.g. the focused note is not loaded).
+ */
+export function planCamera(params: {
+  targets: Map<string, Point>;
+  focusId: string | null;
+  fitAll: boolean;
+  outlineGroups: MapGroup[];
+  ticks: Point[];
+  nodeSize: { width: number; height: number };
+}): CameraPlan | null {
+  const { targets, focusId, fitAll, outlineGroups, ticks, nodeSize } = params;
+  if (targets.size === 0) return null;
+
+  if (focusId && !fitAll) {
+    const focused = targets.get(focusId);
+    return focused ? { kind: 'center', x: focused.x, y: focused.y } : null;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const include = (x: number, y: number, width: number, height: number) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  };
+  targets.forEach((position) => include(position.x, position.y, nodeSize.width, nodeSize.height));
+  // Outlines extend beyond their outermost nodes; keep them (and their labels) in view.
+  outlineGroups.forEach((group) => {
+    const hull = groupHull(group.memberIds.flatMap((id) => {
+      const position = targets.get(id);
+      return position ? [{ ...position, ...NODE_BOX }] : [];
+    }));
+    if (hull) include(hull.x, hull.y - nodeSize.height / 2, hull.width, hull.height + nodeSize.height / 2);
+  });
+  // Timeline date labels sit above the top lane.
+  ticks.forEach((tick) => include(tick.x - 40, tick.y, 80, nodeSize.height));
+  return { kind: 'bounds', x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
