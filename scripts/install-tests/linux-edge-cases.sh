@@ -44,7 +44,12 @@ build_image() {
     echo "✓ $tag — already built (delete with: docker rmi $tag to force rebuild)"
   else
     echo "Building $tag from $dockerfile ..."
-    docker build -q -f "$dockerfile" -t "$tag" "$SCRIPT_DIR" >/dev/null
+    # Explicit check: this script runs without set -e, so a failed build would
+    # otherwise be reported as built and every scenario using it would fail confusingly.
+    if ! docker build -q -f "$dockerfile" -t "$tag" "$SCRIPT_DIR" >/dev/null; then
+      echo "✗ failed to build $tag from $dockerfile" >&2
+      exit 1
+    fi
     echo "✓ $tag built"
   fi
 }

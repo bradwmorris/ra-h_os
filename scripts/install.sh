@@ -10,6 +10,8 @@ PROFILE="openai"
 LLM_PORT="8080"
 EMBEDDING_PORT="8081"
 YES="false"
+# Minimum Node.js major version (package.json engines, bootstrap-local.mjs).
+MIN_NODE_MAJOR=22
 
 _usage() {
   echo "Usage: install.sh [--profile openai|qwen-local|llama-cpp] [--dir DIR] [--llm-port PORT] [--embedding-port PORT] [--yes|-y]"
@@ -38,7 +40,7 @@ warn()  { echo -e "${YELLOW}[ra-h]${NC} $*"; }
 error() { echo -e "${RED}[ra-h] ERROR:${NC} $*" >&2; exit 1; }
 ask()   {
   [[ "$YES" == "true" ]] && return 0
-  local _a
+  local _a=""   # stays empty (declined) if /dev/tty cannot be opened under set -u
   read -rp $'\033[0;32m[ra-h]\033[0m '"$1"$' [y/N] ' _a </dev/tty || true
   [[ "$_a" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
@@ -60,24 +62,24 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
   if command -v nvm >/dev/null 2>&1; then
-    info "nvm detected — using it to install Node.js v22..."
-    nvm install 22
-    nvm use 22
+    info "nvm detected — using it to install Node.js v${MIN_NODE_MAJOR}..."
+    nvm install "$MIN_NODE_MAJOR"
+    nvm use "$MIN_NODE_MAJOR"
     _NODE_VIA_NVM=true
-  elif ask "Install Node.js v22 via nvm now?"; then
-    info "Installing nvm and Node.js v22..."
+  elif ask "Install Node.js v${MIN_NODE_MAJOR} via nvm now?"; then
+    info "Installing nvm and Node.js v${MIN_NODE_MAJOR}..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    nvm install 22
-    nvm use 22
+    nvm install "$MIN_NODE_MAJOR"
+    nvm use "$MIN_NODE_MAJOR"
     _NODE_VIA_NVM=true
   else
-    error "Node.js v22+ is required. Install from https://nodejs.org then re-run."
+    error "Node.js v${MIN_NODE_MAJOR}+ is required. Install from https://nodejs.org then re-run."
   fi
   command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
 fi
 
-# The app requires Node 22+ (package.json engines, bootstrap-local.mjs), so only the
+# The app requires Node $MIN_NODE_MAJOR+ (package.json engines, bootstrap-local.mjs), so only the
 # major version matters. Suffix stripping keeps pre-release tags such as
 # "22.12.0-rc.1" from breaking bash arithmetic under set -e.
 _node_major() {
@@ -87,18 +89,18 @@ _node_major() {
 }
 
 NODE_MAJOR="$(_node_major)"
-if [[ "${NODE_MAJOR:-0}" -lt 22 ]]; then
+if [[ "${NODE_MAJOR:-0}" -lt "$MIN_NODE_MAJOR" ]]; then
   # Node exists but is too old — attempt upgrade via nvm before giving up
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
   if command -v nvm >/dev/null 2>&1; then
-    warn "Node.js $(node -v) is too old — upgrading to v22 via nvm..."
-    nvm install 22
-    nvm use 22
+    warn "Node.js $(node -v) is too old — upgrading to v${MIN_NODE_MAJOR} via nvm..."
+    nvm install "$MIN_NODE_MAJOR"
+    nvm use "$MIN_NODE_MAJOR"
     _NODE_VIA_NVM=true
     NODE_MAJOR="$(_node_major)"
   fi
-  [[ "${NODE_MAJOR:-0}" -ge 22 ]] || error "Node.js v22 or higher is required (found $(node -v)). See https://nodejs.org"
+  [[ "${NODE_MAJOR:-0}" -ge "$MIN_NODE_MAJOR" ]] || error "Node.js v${MIN_NODE_MAJOR} or higher is required (found $(node -v)). See https://nodejs.org"
 fi
 
 # ── Clone ────────────────────────────────────────────────────────────────────

@@ -80,6 +80,7 @@ fi
 # ── Confirm ─────────────────────────────────────────────────────────────────
 if ! $DRY_RUN && ! $YES; then
   echo ""
+  ans=""   # stays empty (declined) if /dev/tty cannot be opened under set -u
   read -rp "Proceed? [y/N] " ans </dev/tty || true
   [[ "$ans" =~ ^[Yy] ]] || { echo "Aborted."; exit 0; }
 fi

@@ -97,6 +97,8 @@ irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.p
 **CI/CD (GitHub Actions example):**
 ```yaml
 - name: Install RA-H
+  # shell: bash runs with -o pipefail, so a failed download fails the step
+  shell: bash
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes

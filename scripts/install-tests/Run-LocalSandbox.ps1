@@ -63,6 +63,13 @@ $SandboxBootstrap = "$SandboxSrc\scripts\install-tests\sandbox-bootstrap.ps1"
 # The key is embedded in a single-quoted PowerShell string in runner.ps1; double any
 # single quote so a key containing one cannot break out of the literal.
 $OpenAiKeyLiteral = $OpenAiKey -replace "'", "''"
+# The sandbox does not inherit the host environment, so forward the documented
+# llama.cpp download overrides (see llama-real-setup.sh / sandbox-bootstrap.ps1)
+# into runner.ps1 the same way, escaped for single-quoted literals.
+$OverrideAssignments = foreach ($name in 'LLAMACPP_ASSET_RE', 'CHAT_GGUF_URL', 'EMBED_GGUF_URL') {
+  $value = [Environment]::GetEnvironmentVariable($name)
+  if ($value) { "`$env:$name = '$($value -replace "'", "''")'; " }
+}
 $runnerContent = @"
 # Use UTF-8 for the console + captured output so winget/ollama/Node progress
 # bars (Unicode block chars) render correctly in the log instead of CP850
@@ -72,7 +79,7 @@ chcp 65001 > `$null
 `$OutputEncoding = [System.Text.UTF8Encoding]::new()
 Write-Host '[ra-h] Testing installer in Windows Sandbox (mode: $Mode, profile: $AiProfile)' -ForegroundColor Green
 Set-Location `$env:USERPROFILE\Desktop
-$(if ($OpenAiKey) { "`$env:OPENAI_API_KEY = '$OpenAiKeyLiteral'; " })powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
+$(if ($OpenAiKey) { "`$env:OPENAI_API_KEY = '$OpenAiKeyLiteral'; " })$($OverrideAssignments -join '')powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
 `$rc = `$LASTEXITCODE
 # Capture Ollama's own logs (they live in the sandbox profile and are wiped on
 # close) so a failed daemon start can be diagnosed from the host log folder.
