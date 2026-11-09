@@ -46,19 +46,19 @@ export interface ForceLayoutOptions {
   nodeBox: { width: number; height: number };
 }
 
-// Tuned on a real 135-node / 227-link graph. Linear attraction keeps links between groups
-// short; strong group gravity keeps communities tight. The node box is the compact
-// (icon + hub label) size used in the zoomed-out overview, not a full label, which is
-// what lets the layout stay dense; full labels appear when zoomed in.
+// Tuned on a real 135-node / 227-link graph, between a looser layout (room for full
+// labels) and a dense one (room for icons only). Linear attraction keeps links between
+// groups short; group gravity keeps communities together. The node box reserves room
+// for an icon plus a short label; full labels appear as you zoom in.
 export const DEFAULT_FORCE_LAYOUT_OPTIONS: ForceLayoutOptions = {
   iterations: 300,
-  repulsion: 2,
-  gravity: 1.5,
-  groupGravity: 4,
-  linkLength: 70,
+  repulsion: 2.5,
+  gravity: 1.05,
+  groupGravity: 3,
+  linkLength: 110,
   aspect: 1.8,
   attraction: 'linear',
-  nodeBox: { width: 64, height: 30 },
+  nodeBox: { width: 96, height: 34 },
 };
 
 interface Body {

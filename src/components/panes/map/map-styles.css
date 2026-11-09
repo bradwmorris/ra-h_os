@@ -180,7 +180,7 @@ html[data-theme="light"] .rah-map-wrapper {
   stroke-dasharray: 6 5;
 }
 
-/* Group labels are shown when zoomed out, so they are sized for a small zoom. */
+/* Group labels show at every zoom level; they scale with the map. */
 .rah-map-group__label {
   position: absolute;
   top: 0;

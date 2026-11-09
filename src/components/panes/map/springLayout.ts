@@ -53,7 +53,7 @@ export const DEFAULT_SPRING_PARAMS: SpringParams = {
   linkStrength: 0.05,
   // Small enough not to fight the target layout, which already keeps node boxes apart;
   // this only stops nodes piling up while they move or are dragged.
-  collisionRadius: 26,
+  collisionRadius: 30,
   collisionStrength: 0.35,
   damping: 0.8,
   maxSpeed: 48,
