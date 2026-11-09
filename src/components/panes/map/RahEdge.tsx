@@ -4,11 +4,18 @@ import { memo, useState } from 'react';
 import {
   BaseEdge,
   getBezierPath,
+  getStraightPath,
   type EdgeProps,
 } from '@xyflow/react';
 
 interface RahEdgeData {
   explanation?: string;
+  /**
+   * Draw a straight line instead of a bezier. Force-style layouts place targets in any
+   * direction, and a bottom-to-top bezier loops back on itself whenever the target is
+   * above the source.
+   */
+  straight?: boolean;
   [key: string]: unknown;
 }
 
@@ -24,14 +31,17 @@ function RahEdgeComponent({
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
   const explanation = (data as RahEdgeData | undefined)?.explanation;
+  const straight = Boolean((data as RahEdgeData | undefined)?.straight);
 
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    curvature: 0.18,
-  });
+  const [edgePath, labelX, labelY] = straight
+    ? getStraightPath({ sourceX, sourceY, targetX, targetY })
+    : getBezierPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      curvature: 0.18,
+    });
 
   return (
     <g

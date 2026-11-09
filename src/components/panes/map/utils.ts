@@ -7,7 +7,8 @@ export type MapViewMode = 'overview' | 'focused';
 
 /** How the overview is laid out (the focused view always uses hop rings). */
 export type OverviewLayout = 'grouped' | 'network' | 'islands' | 'original' | 'timeline';
-export const OVERVIEW_LAYOUTS: OverviewLayout[] = ['grouped', 'network', 'islands', 'original', 'timeline'];
+export const OVERVIEW_LAYOUTS: OverviewLayout[] = ['original', 'timeline', 'grouped', 'network', 'islands'];
+export const DEFAULT_OVERVIEW_LAYOUT: OverviewLayout = 'original';
 /** Layouts that draw community outlines. */
 export const OUTLINED_LAYOUTS: ReadonlySet<OverviewLayout> = new Set(['grouped', 'islands', 'timeline']);
 
@@ -43,6 +44,15 @@ export interface RahGroupData {
   /** Smoothed hull outline relative to the node's top-left corner (see groupHull). */
   path: string;
   [key: string]: unknown;
+}
+
+export const GROUP_PALETTE_SIZE = 8;
+
+/** CSS custom property holding a group's colour (see map-styles.css). */
+export function groupColorVar(index: number): string {
+  return index === UNLINKED
+    ? 'var(--rah-map-group-unlinked)'
+    : `var(--rah-map-group-${index % GROUP_PALETTE_SIZE})`;
 }
 
 export const NODE_LIMIT = 200;
@@ -130,13 +140,13 @@ export function buildFocusedGraph(
 // Regions are packed around the largest one, closest-first, without overlapping.
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-const SUNFLOWER_SPACING = 58;
+const SUNFLOWER_SPACING = 50;
 // Nodes are much wider than tall, so spread the spiral horizontally.
 const SUNFLOWER_X_STRETCH = 1.75;
 // Halo margin around a group's outermost nodes, and the clear gap kept between halos
 // (room for the halo labels).
 const HALO_PADDING = 16;
-const GROUP_GAP = 40;
+const GROUP_GAP = 26;
 // Rendered node box used to centre a node on its layout point (positions are top-left).
 export const NODE_BOX = { width: 120, height: 32 };
 
@@ -239,9 +249,93 @@ function buildForceOverviewLayout(
     groupGravity,
   });
 
+  const packed = packDisconnectedComponents(centres, links);
+
   const positions = new Map<string, Point>();
-  centres.forEach((point, id) => positions.set(id, { x: point.x - half.x, y: point.y - half.y }));
+  packed.forEach((point, id) => positions.set(id, { x: point.x - half.x, y: point.y - half.y }));
   return positions;
+}
+
+/**
+ * Keep the largest connected component where the force layout put it, and move every
+ * smaller disconnected piece (including lone unlinked notes) into tidy rows just below
+ * it, each keeping its own shape. Without this, disconnected pieces are held only by
+ * gravity and drift to the edges of the map. Works on node centres.
+ */
+export function packDisconnectedComponents(
+  centres: Map<string, Point>,
+  links: Array<[string, string]>,
+  gap = 48,
+): Map<string, Point> {
+  const ids = [...centres.keys()];
+  const adjacency = new Map<string, string[]>(ids.map((id) => [id, []]));
+  for (const [a, b] of links) {
+    if (adjacency.has(a) && adjacency.has(b)) {
+      adjacency.get(a)!.push(b);
+      adjacency.get(b)!.push(a);
+    }
+  }
+  const seen = new Set<string>();
+  const components: string[][] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const component: string[] = [];
+    const stack = [id];
+    seen.add(id);
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      component.push(current);
+      for (const next of adjacency.get(current) ?? []) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+    }
+    components.push(component);
+  }
+  if (components.length <= 1) return centres;
+
+  // Largest first; ties by first id for determinism.
+  components.sort((a, b) => b.length - a.length || a[0].localeCompare(b[0], undefined, { numeric: true }));
+  const bounds = (component: string[]) => {
+    const points = component.map((id) => centres.get(id)!);
+    return {
+      minX: Math.min(...points.map((p) => p.x)) - NODE_BOX.width / 2,
+      maxX: Math.max(...points.map((p) => p.x)) + NODE_BOX.width / 2,
+      minY: Math.min(...points.map((p) => p.y)) - NODE_BOX.height / 2,
+      maxY: Math.max(...points.map((p) => p.y)) + NODE_BOX.height / 2,
+    };
+  };
+
+  const result = new Map<string, Point>();
+  const main = bounds(components[0]);
+  components[0].forEach((id) => result.set(id, centres.get(id)!));
+
+  // Shelf packing below the main component, wrapping at its width.
+  const rowWidth = Math.max(main.maxX - main.minX, 600);
+  let cursorX = main.minX;
+  let rowTop = main.maxY + gap * 2;
+  let rowHeight = 0;
+  for (const component of components.slice(1)) {
+    const box = bounds(component);
+    const width = box.maxX - box.minX;
+    const height = box.maxY - box.minY;
+    if (cursorX > main.minX && cursorX + width > main.minX + rowWidth) {
+      cursorX = main.minX;
+      rowTop += rowHeight + gap;
+      rowHeight = 0;
+    }
+    const dx = cursorX - box.minX;
+    const dy = rowTop - box.minY;
+    component.forEach((id) => {
+      const p = centres.get(id)!;
+      result.set(id, { x: p.x + dx, y: p.y + dy });
+    });
+    cursorX += width + gap;
+    rowHeight = Math.max(rowHeight, height);
+  }
+  return result;
 }
 
 function buildGroupedOverviewLayout(groups: MapGroup[], centerX: number, centerY: number): Map<string, Point> {
@@ -641,13 +735,13 @@ export function toRFNodes(params: {
   focusedGraph: FocusedGraph | null;
   /** Groups for the overview layout and node colouring (see describeGroups). */
   groups: MapGroup[];
-  /** Overview layout style; the focused view ignores it. Defaults to 'grouped'. */
+  /** Overview layout style; the focused view ignores it. Defaults to DEFAULT_OVERVIEW_LAYOUT. */
   overviewLayout?: OverviewLayout;
   centerX: number;
   centerY: number;
 }): RFNode<RahNodeData>[] {
   const { nodes, viewMode, degreeMap, adjacency, focusedGraph, groups, centerX, centerY } = params;
-  const overviewLayout = params.overviewLayout ?? 'grouped';
+  const overviewLayout = params.overviewLayout ?? DEFAULT_OVERVIEW_LAYOUT;
 
   // The original layout predates groups, so it shows no community colours.
   const groupOf = new Map<string, number>();
@@ -732,12 +826,29 @@ export function withUngroupedAsUnlinked(groups: MapGroup[], nodes: DbNode[]): Ma
   return result;
 }
 
+const NEUTRAL_EDGE = { stroke: '#475569', strokeWidth: 1.05, opacity: 0.2 };
+
+function overviewEdgeStyle(source: string, target: string, groupOf?: Map<string, number>) {
+  if (!groupOf) return NEUTRAL_EDGE;
+  const a = groupOf.get(source);
+  const b = groupOf.get(target);
+  if (a !== undefined && a === b && a !== UNLINKED) {
+    return { stroke: groupColorVar(a), strokeWidth: 1.25, opacity: 0.42 };
+  }
+  return { stroke: '#64748b', strokeWidth: 0.9, opacity: 0.14 };
+}
+
 export function toRFEdges(params: {
   dbEdges: DbEdge[];
   nodeIds: Set<string>;
   focusedGraph: FocusedGraph | null;
+  /**
+   * Overview only: node id -> community. Links inside a community take its colour and
+   * links between communities fade back, so the group structure reads at a glance.
+   */
+  groupOf?: Map<string, number>;
 }): RFEdge[] {
-  const { dbEdges, nodeIds, focusedGraph } = params;
+  const { dbEdges, nodeIds, focusedGraph, groupOf } = params;
 
   return dbEdges
     .filter((edge) => nodeIds.has(String(edge.from_node_id)) && nodeIds.has(String(edge.to_node_id)))
@@ -756,14 +867,15 @@ export function toRFEdges(params: {
         target: String(edge.to_node_id),
         type: 'rahEdge',
         animated: false,
-        data: { explanation },
+        // Straight links for the community layouts (groupOf is only set there).
+        data: { explanation, straight: Boolean(groupOf) },
         style: focusedGraph
           ? touchesSelected
             ? { stroke: 'color-mix(in srgb, var(--rah-accent-green) 55%, #94a3b8)', strokeWidth: 1.9, opacity: 0.72 }
             : touchesSecondHop
               ? { stroke: '#64748b', strokeWidth: 1.15, opacity: 0.3 }
               : { stroke: '#475569', strokeWidth: 1.05, opacity: 0.22 }
-          : { stroke: '#475569', strokeWidth: 1.05, opacity: 0.2 },
+          : overviewEdgeStyle(String(edge.from_node_id), String(edge.to_node_id), groupOf),
         zIndex: touchesSelected ? 10 : 1,
       };
     });

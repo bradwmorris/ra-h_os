@@ -3,18 +3,9 @@
 import { memo } from 'react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { UNLINKED } from './communities';
-import type { RahGroupData } from './utils';
+import { groupColorVar, type RahGroupData } from './utils';
 
 type RahGroupType = Node<RahGroupData, 'rahGroup'>;
-
-export const GROUP_PALETTE_SIZE = 8;
-
-/** CSS custom property holding a group's colour (see map-styles.css). */
-export function groupColorVar(index: number): string {
-  return index === UNLINKED
-    ? 'var(--rah-map-group-unlinked)'
-    : `var(--rah-map-group-${index % GROUP_PALETTE_SIZE})`;
-}
 
 /** Soft outline hugging a community of nodes, labelled with its hub at every zoom level. */
 function RahGroupComponent({ data, width, height }: NodeProps<RahGroupType>) {

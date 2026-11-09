@@ -42,6 +42,7 @@ import {
   type MapGroup,
   type OverviewLayout,
   isOverviewLayout,
+  DEFAULT_OVERVIEW_LAYOUT,
   OUTLINED_LAYOUTS,
   type MapViewMode,
   type RahGroupData,
@@ -73,11 +74,11 @@ const EMPTY_OVERLAY: MapOverlay = { groups: [], bands: false, ticks: [] };
 const nodeTypes = { rahNode: RahNode, rahGroup: RahGroup, rahTick: RahTick };
 const OVERVIEW_LAYOUT_KEY = 'ui.map.overviewLayout.v1';
 const LAYOUT_OPTIONS: Array<SegmentedOption<OverviewLayout>> = [
+  { value: 'original', label: 'Original', icon: <CircleDot size={13} />, title: 'Original: most-linked notes in the centre' },
+  { value: 'timeline', label: 'Timeline', icon: <ListStart size={13} />, title: 'Timeline: notes by creation date, one row per topic' },
   { value: 'grouped', label: 'Grouped', icon: <Boxes size={13} />, title: 'Grouped: topics pulled together, with links between them' },
   { value: 'network', label: 'Network', icon: <Network size={13} />, title: 'Network: pure link structure, no grouping' },
   { value: 'islands', label: 'Islands', icon: <LayoutGrid size={13} />, title: 'Islands: each topic in its own region' },
-  { value: 'original', label: 'Original', icon: <CircleDot size={13} />, title: 'Original: most-linked notes in the centre' },
-  { value: 'timeline', label: 'Timeline', icon: <ListStart size={13} />, title: 'Timeline: notes by creation date, one row per topic' },
 ];
 
 // Communities smaller than this get a colour accent but no halo, to avoid clutter.
@@ -153,9 +154,9 @@ function MapPaneInner({
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
   const reducedMotion = usePrefersReducedMotion();
-  const [storedLayout, setOverviewLayout] = usePersistentState<OverviewLayout>(OVERVIEW_LAYOUT_KEY, 'grouped');
+  const [storedLayout, setOverviewLayout] = usePersistentState<OverviewLayout>(OVERVIEW_LAYOUT_KEY, DEFAULT_OVERVIEW_LAYOUT);
   // Guard against stale or hand-edited storage values.
-  const overviewLayout: OverviewLayout = isOverviewLayout(storedLayout) ? storedLayout : 'grouped';
+  const overviewLayout: OverviewLayout = isOverviewLayout(storedLayout) ? storedLayout : DEFAULT_OVERVIEW_LAYOUT;
 
   const [baseNodes, setBaseNodes] = useState<DbNode[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<DbNode[]>([]);
@@ -345,13 +346,23 @@ function MapPaneInner({
     [adjacency, degreeMap, focusedGraph, groups, overviewLayout, viewMode, visibleNodes],
   );
 
+  // Group-coloured links in the overview layouts that show communities (not Original,
+  // which predates groups, and not the focused view, which highlights hops instead).
+  const edgeGroupOf = useMemo(() => {
+    if (viewMode !== 'overview' || overviewLayout === 'original') return undefined;
+    const map = new Map<string, number>();
+    groups.forEach((group) => group.memberIds.forEach((id) => map.set(id, group.index)));
+    return map;
+  }, [groups, overviewLayout, viewMode]);
+
   const layoutEdges = useMemo(
     () => toRFEdges({
       dbEdges,
       nodeIds: new Set(visibleNodes.map((node) => String(node.id))),
       focusedGraph,
+      groupOf: edgeGroupOf,
     }),
-    [dbEdges, focusedGraph, visibleNodes],
+    [dbEdges, edgeGroupOf, focusedGraph, visibleNodes],
   );
 
   // The spring simulation animates rendered positions toward the target layout. Only

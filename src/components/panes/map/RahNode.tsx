@@ -2,8 +2,7 @@
 
 import { memo } from 'react';
 import { Handle, Position, useStore, type NodeProps, type Node, type ReactFlowState } from '@xyflow/react';
-import type { RahNodeData } from './utils';
-import { groupColorVar } from './RahGroup';
+import { groupColorVar, type RahNodeData } from './utils';
 import { getNodeIcon } from '@/utils/nodeIcons';
 
 type RahNodeType = Node<RahNodeData, 'rahNode'>;

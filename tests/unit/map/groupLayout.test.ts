@@ -7,6 +7,8 @@ import {
   createdAtTimes,
   groupBand,
   groupHull,
+  packDisconnectedComponents,
+  toRFEdges,
   toRFNodes,
   withUngroupedAsUnlinked,
   isOverviewLayout,
@@ -82,6 +84,7 @@ describe('overview layout', () => {
     adjacency,
     focusedGraph: null,
     groups,
+    overviewLayout: 'grouped',
     centerX: 0,
     centerY: 0,
   });
@@ -228,5 +231,54 @@ describe('timeline helpers', () => {
     expect(band).toMatchObject({ x: -10, y: -10, width: 270, height: 100 });
     expect(band.path.startsWith('M ')).toBe(true);
     expect(band.path.endsWith('Z')).toBe(true);
+  });
+});
+
+describe('packDisconnectedComponents', () => {
+  it('keeps the largest component in place and packs the rest in rows just below it', () => {
+    const centres = new Map<string, { x: number; y: number }>([
+      // Main component: a-b-c around the origin.
+      ['a', { x: -200, y: 0 }], ['b', { x: 0, y: 50 }], ['c', { x: 200, y: 0 }],
+      // A linked pair and a loner that drifted far away.
+      ['p', { x: 5000, y: -4000 }], ['q', { x: 5100, y: -4000 }],
+      ['z', { x: -9000, y: 9000 }],
+    ]);
+    const links: Array<[string, string]> = [['a', 'b'], ['b', 'c'], ['p', 'q']];
+    const out = packDisconnectedComponents(centres, links);
+
+    // Main component untouched.
+    ['a', 'b', 'c'].forEach((id) => expect(out.get(id)).toEqual(centres.get(id)));
+    // Pair keeps its shape.
+    expect(out.get('q')!.x - out.get('p')!.x).toBeCloseTo(100);
+    expect(out.get('q')!.y - out.get('p')!.y).toBeCloseTo(0);
+    // Everything else now sits just below the main component, nowhere near where it drifted.
+    const mainBottom = 50;
+    ['p', 'q', 'z'].forEach((id) => {
+      const point = out.get(id)!;
+      expect(point.y).toBeGreaterThan(mainBottom);
+      expect(point.y).toBeLessThan(mainBottom + 400);
+      expect(Math.abs(point.x)).toBeLessThan(1000);
+    });
+  });
+
+  it('returns the input unchanged when the graph is connected', () => {
+    const centres = new Map([['a', { x: 1, y: 2 }], ['b', { x: 3, y: 4 }]]);
+    expect(packDisconnectedComponents(centres, [['a', 'b']])).toBe(centres);
+  });
+});
+
+describe('overview edge colours', () => {
+  it('colours links inside a group and fades links between groups', () => {
+    const dbEdges = [
+      { id: 1, from_node_id: 1, to_node_id: 2, context: null },
+      { id: 2, from_node_id: 2, to_node_id: 3, context: null },
+    ] as unknown as Parameters<typeof toRFEdges>[0]['dbEdges'];
+    const groupOf = new Map([['1', 0], ['2', 0], ['3', 1]]);
+    const edges = toRFEdges({ dbEdges, nodeIds: new Set(['1', '2', '3']), focusedGraph: null, groupOf });
+    expect(edges[0].style?.stroke).toBe('var(--rah-map-group-0)');
+    expect(Number(edges[1].style?.opacity)).toBeLessThan(Number(edges[0].style?.opacity));
+
+    const neutral = toRFEdges({ dbEdges, nodeIds: new Set(['1', '2', '3']), focusedGraph: null });
+    expect(neutral[0].style?.stroke).toBe('#475569');
   });
 });
