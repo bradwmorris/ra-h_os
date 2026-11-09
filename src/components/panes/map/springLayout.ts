@@ -51,7 +51,9 @@ export interface SpringParams {
 export const DEFAULT_SPRING_PARAMS: SpringParams = {
   anchorStrength: 0.035,
   linkStrength: 0.05,
-  collisionRadius: 56,
+  // Small enough not to fight the target layout, which already keeps node boxes apart;
+  // this only stops nodes piling up while they move or are dragged.
+  collisionRadius: 34,
   collisionStrength: 0.35,
   damping: 0.8,
   maxSpeed: 48,

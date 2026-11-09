@@ -1,6 +1,7 @@
 import type { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import type { Node as RFNode, Edge as RFEdge } from '@xyflow/react';
 import { UNLINKED, type CommunityResult } from './communities';
+import { computeForceLayout } from './forceLayout';
 
 export type MapViewMode = 'overview' | 'focused';
 export type MapNodeRole = 'overview' | 'selected' | 'first-hop' | 'second-hop';
@@ -29,6 +30,8 @@ export interface RahGroupData {
   /** Community index (0 = largest) or UNLINKED. */
   index: number;
   memberCount: number;
+  /** Smoothed hull outline relative to the node's top-left corner (see groupHull). */
+  path: string;
   [key: string]: unknown;
 }
 
@@ -187,6 +190,45 @@ export function describeGroups(
   return groups;
 }
 
+/**
+ * Overview layout: one connected force layout (forceLayout.ts) where communities emerge
+ * from the links and a soft group gravity keeps each one together, without walls between
+ * them. The packed sunflower layout below only provides a deterministic starting point.
+ */
+function buildForceOverviewLayout(
+  groups: MapGroup[],
+  adjacency: Map<number, Set<number>>,
+  centerX: number,
+  centerY: number,
+): Map<string, Point> {
+  const seedTopLeft = buildGroupedOverviewLayout(groups, centerX, centerY);
+  const ids = groups.flatMap((group) => group.memberIds);
+  const visible = new Set(ids);
+  // Unlinked notes are not a real community: no group pull, so they float on their own.
+  const groupOf = new Map<string, number | null>();
+  groups.forEach((group) => group.memberIds.forEach((id) => groupOf.set(id, group.index === UNLINKED ? null : group.index)));
+
+  const links: Array<[string, string]> = [];
+  adjacency.forEach((neighbours, nodeId) => {
+    const source = String(nodeId);
+    if (!visible.has(source)) return;
+    neighbours.forEach((neighbourId) => {
+      const target = String(neighbourId);
+      if (nodeId < neighbourId && visible.has(target)) links.push([source, target]);
+    });
+  });
+
+  // The force layout works on node centres; React Flow positions are top-left corners.
+  const half = { x: NODE_BOX.width / 2, y: NODE_BOX.height / 2 };
+  const seedCentres = new Map<string, Point>();
+  seedTopLeft.forEach((point, id) => seedCentres.set(id, { x: point.x + half.x, y: point.y + half.y }));
+  const centres = computeForceLayout(ids, links, groupOf, seedCentres, { x: centerX, y: centerY });
+
+  const positions = new Map<string, Point>();
+  centres.forEach((point, id) => positions.set(id, { x: point.x - half.x, y: point.y - half.y }));
+  return positions;
+}
+
 function buildGroupedOverviewLayout(groups: MapGroup[], centerX: number, centerY: number): Map<string, Point> {
   const positions = new Map<string, Point>();
   // Radius each group's halo will need, in horizontally-stretched units: the outermost
@@ -211,36 +253,67 @@ function buildGroupedOverviewLayout(groups: MapGroup[], centerX: number, centerY
   return positions;
 }
 
+export interface GroupHull {
+  /** Bounding box of the hull (top-left plus size) in flow coordinates. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Closed, smoothed SVG path relative to (x, y). */
+  path: string;
+}
+
+function convexHull(points: Point[]): Point[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (sorted.length <= 2) return sorted;
+  const cross = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: Point[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: Point[] = [];
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
 /**
- * Bounding box of an ellipse fitted to a group of node boxes, for drawing a group halo.
- * `rects` are top-left positions plus sizes.
- *
- * The ellipse is shaped like the spread of the node centres and scaled just enough to
- * contain every centre, then grown by half a node plus padding. For the round sunflower
- * clusters this hugs the group far more tightly than circumscribing the bounding box.
+ * Outline that hugs a group of node boxes: the convex hull of the padded boxes with its
+ * corners smoothed (quadratic curves through edge midpoints). Unlike an ellipse it follows
+ * the group's actual shape, so neighbouring groups can sit close without large overlaps.
  */
-export function groupHaloBounds(
+export function groupHull(
   rects: Array<{ x: number; y: number; width: number; height: number }>,
   padding = HALO_PADDING,
-): { x: number; y: number; width: number; height: number } | null {
+): GroupHull | null {
   if (rects.length === 0) return null;
-  const centres = rects.map((rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }));
-  const minX = Math.min(...centres.map((c) => c.x));
-  const maxX = Math.max(...centres.map((c) => c.x));
-  const minY = Math.min(...centres.map((c) => c.y));
-  const maxY = Math.max(...centres.map((c) => c.y));
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  // Half-extents of the centres' spread (floored so 1-2 node groups still get a shape).
-  const ax = Math.max((maxX - minX) / 2, 1);
-  const ay = Math.max((maxY - minY) / 2, 1);
-  // Smallest scale k such that every centre satisfies (dx/(k*ax))^2 + (dy/(k*ay))^2 <= 1.
-  const k = Math.max(1, ...centres.map((c) => Math.hypot((c.x - cx) / ax, (c.y - cy) / ay)));
-  const maxHalfWidth = Math.max(...rects.map((rect) => rect.width / 2));
-  const maxHalfHeight = Math.max(...rects.map((rect) => rect.height / 2));
-  const rx = k * ax + maxHalfWidth + padding;
-  const ry = k * ay + maxHalfHeight + padding;
-  return { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 };
+  const corners: Point[] = rects.flatMap((rect) => [
+    { x: rect.x - padding, y: rect.y - padding },
+    { x: rect.x + rect.width + padding, y: rect.y - padding },
+    { x: rect.x + rect.width + padding, y: rect.y + rect.height + padding },
+    { x: rect.x - padding, y: rect.y + rect.height + padding },
+  ]);
+  const hull = convexHull(corners);
+  const minX = Math.min(...hull.map((p) => p.x));
+  const minY = Math.min(...hull.map((p) => p.y));
+  const maxX = Math.max(...hull.map((p) => p.x));
+  const maxY = Math.max(...hull.map((p) => p.y));
+  const local = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+  const mid = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const fmt = (p: Point) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+
+  const start = mid(local[local.length - 1], local[0]);
+  let path = `M ${fmt(start)}`;
+  local.forEach((point, i) => {
+    path += ` Q ${fmt(point)} ${fmt(mid(point, local[(i + 1) % local.length]))}`;
+  });
+  path += ' Z';
+
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY, path };
 }
 
 function buildFocusedLayout(
@@ -320,9 +393,10 @@ export function toRFNodes(params: {
 
   const positions = viewMode === 'focused' && focusedGraph
     ? buildFocusedLayout(nodes, focusedGraph, adjacency, centerX, centerY)
-    : buildGroupedOverviewLayout(
+    : buildForceOverviewLayout(
       // Only lay out groups' visible members; nodes outside any group join "Unlinked".
       withUngroupedAsUnlinked(groups, nodes),
+      adjacency,
       centerX,
       centerY,
     );

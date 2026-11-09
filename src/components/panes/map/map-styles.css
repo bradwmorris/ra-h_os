@@ -159,32 +159,45 @@ html[data-theme="light"] .rah-map-wrapper {
 }
 
 .rah-map-group {
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-fill-alpha), transparent);
-  border: 1.5px solid color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-border-alpha), transparent);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  position: relative;
   box-sizing: border-box;
 }
 
-.rah-map-group--unlinked {
-  border-style: dashed;
+.rah-map-group__shape {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
 }
 
+.rah-map-group__shape path {
+  fill: color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-fill-alpha), transparent);
+  stroke: color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-border-alpha), transparent);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+
+.rah-map-group--unlinked .rah-map-group__shape path {
+  stroke-dasharray: 6 5;
+}
+
+/* Group labels are shown when zoomed out, so they are sized for a small zoom. */
 .rah-map-group__label {
-  margin-top: -11px;
-  padding: 2px 8px;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 4px));
+  padding: 2px 9px;
   border-radius: 999px;
   background: var(--rah-bg-base);
   border: 1px solid color-mix(in srgb, var(--rah-map-group-color) 45%, transparent);
   color: var(--rah-map-group-color);
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  transition: opacity 0.2s ease;
 }
 
 .rah-map-group__count {
@@ -201,4 +214,27 @@ html[data-theme="light"] .rah-map-wrapper {
   .rah-map-node {
     transition: none;
   }
+}
+
+/* Zoomed out: less prominent nodes collapse to their icon so the overview stays legible
+   (label level-of-detail); hubs, selected and hovered nodes keep their labels. */
+.rah-map-node--compact {
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.rah-map-node--compact .rah-map-node__label {
+  display: none;
+}
+
+/* Hovering a node dims everything outside its neighbourhood. */
+.rah-map-wrapper .react-flow__node.rah-map-dimmed,
+.rah-map-wrapper .react-flow__edge.rah-map-dimmed {
+  opacity: 0.16;
+  transition: opacity 0.15s ease;
+}
+
+.rah-map-wrapper .react-flow__node-rahNode,
+.rah-map-wrapper .react-flow__edge {
+  transition: opacity 0.15s ease;
 }

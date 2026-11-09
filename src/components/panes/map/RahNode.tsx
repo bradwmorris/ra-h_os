@@ -1,16 +1,25 @@
 "use client";
 
 import { memo } from 'react';
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, useStore, type NodeProps, type Node, type ReactFlowState } from '@xyflow/react';
 import type { RahNodeData } from './utils';
 import { groupColorVar } from './RahGroup';
 import { getNodeIcon } from '@/utils/nodeIcons';
 
 type RahNodeType = Node<RahNodeData, 'rahNode'>;
 
+// Label level-of-detail: below this zoom, less prominent overview nodes show only their
+// icon so the hubs' labels stay readable. Boolean selector, so nodes re-render only when
+// the threshold is crossed.
+const COMPACT_BELOW_ZOOM = 0.75;
+const HUB_PROMINENCE = 0.35;
+const zoomedOutSelector = (state: ReactFlowState) => state.transform[2] < COMPACT_BELOW_ZOOM;
+
 function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
   const { label, dbNode, role, prominence, group } = data;
   const isSelected = selected || role === 'selected';
+  const zoomedOut = useStore(zoomedOutSelector);
+  const compact = zoomedOut && role === 'overview' && !isSelected && prominence < HUB_PROMINENCE;
   const sizeScale = role === 'selected'
     ? 1.08
     : role === 'first-hop'
@@ -29,7 +38,9 @@ function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
         isSelected && 'rah-map-node--active',
         strongNode && 'rah-map-node--strong',
         group !== null && 'rah-map-node--grouped',
+        compact && 'rah-map-node--compact',
       ].filter(Boolean).join(' ')}
+      title={compact ? label : undefined}
       style={{
         transform: `scale(${sizeScale})`,
         ...(group !== null ? { ['--rah-map-group-color' as string]: groupColorVar(group) } : {}),
@@ -40,7 +51,9 @@ function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
         <span className="rah-map-node__icon">
           {getNodeIcon(dbNode, 14)}
         </span>
-        {label.length > 26 ? label.slice(0, 24) + '\u2026' : label}
+        <span className="rah-map-node__label">
+          {label.length > 26 ? label.slice(0, 24) + '\u2026' : label}
+        </span>
       </div>
       <Handle type="source" position={Position.Bottom} className="rah-map-handle rah-map-handle--hidden" isConnectable={false} />
     </div>

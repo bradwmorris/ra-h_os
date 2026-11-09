@@ -27,7 +27,7 @@ import {
   buildDegreeMap,
   buildFocusedGraph,
   describeGroups,
-  groupHaloBounds,
+  groupHull,
   toRFNodes,
   toRFEdges,
   withUngroupedAsUnlinked,
@@ -79,15 +79,15 @@ function withGroupHalos(nodes: MapFlowNode[], groups: MapGroup[]): MapFlowNode[]
         }]
         : [];
     });
-    const bounds = groupHaloBounds(rects);
-    if (!bounds) continue;
+    const hull = groupHull(rects);
+    if (!hull) continue;
     halos.push({
       id: group.id,
       type: 'rahGroup',
-      position: { x: bounds.x, y: bounds.y },
-      width: bounds.width,
-      height: bounds.height,
-      data: { label: group.label, index: group.index, memberCount: rects.length },
+      position: { x: hull.x, y: hull.y },
+      width: hull.width,
+      height: hull.height,
+      data: { label: group.label, index: group.index, memberCount: rects.length, path: hull.path },
       draggable: false,
       selectable: false,
       focusable: false,
@@ -192,6 +192,30 @@ function MapPaneInner({
 
   const hoveredDbNode = hoveredNodeId ? nodesById.get(hoveredNodeId) ?? null : null;
 
+  // Hovering a node highlights its neighbourhood: everything else is dimmed (applied as a
+  // class on the rendered copies, so the simulation's node state is untouched).
+  const hoverNeighbourhood = useMemo(() => {
+    if (hoveredNodeId === null) return null;
+    const ids = new Set<string>([String(hoveredNodeId)]);
+    adjacency.get(hoveredNodeId)?.forEach((id) => ids.add(String(id)));
+    return ids;
+  }, [adjacency, hoveredNodeId]);
+
+  const displayNodes = useMemo(() => {
+    if (!hoverNeighbourhood) return rfNodes;
+    return rfNodes.map((node) => (
+      isRahNode(node) && !hoverNeighbourhood.has(node.id) ? { ...node, className: 'rah-map-dimmed' } : node
+    ));
+  }, [hoverNeighbourhood, rfNodes]);
+
+  const displayEdges = useMemo(() => {
+    if (hoveredNodeId === null) return rfEdges;
+    const hovered = String(hoveredNodeId);
+    return rfEdges.map((edge) => (
+      edge.source === hovered || edge.target === hovered ? edge : { ...edge, className: 'rah-map-dimmed' }
+    ));
+  }, [hoveredNodeId, rfEdges]);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -236,7 +260,8 @@ function MapPaneInner({
   const haloGroups = useMemo(
     () => (viewMode === 'overview'
       ? withUngroupedAsUnlinked(groups, visibleNodes)
-        .filter((group) => group.memberIds.length >= MIN_HALO_MEMBERS || group.index === UNLINKED)
+        // Unlinked notes are not a community, so they get no outline.
+        .filter((group) => group.memberIds.length >= MIN_HALO_MEMBERS && group.index !== UNLINKED)
       : []),
     [groups, viewMode, visibleNodes],
   );
@@ -429,7 +454,7 @@ function MapPaneInner({
       // Halos extend beyond their outermost nodes; keep them (and their labels) in view.
       const positionById = new Map(layoutNodes.map((node) => [node.id, node.position]));
       haloGroups.forEach((group) => {
-        const halo = groupHaloBounds(group.memberIds.flatMap((id) => {
+        const halo = groupHull(group.memberIds.flatMap((id) => {
           const position = positionById.get(id);
           return position ? [{ ...position, ...NODE_BOX }] : [];
         }));
@@ -635,8 +660,8 @@ function MapPaneInner({
         ) : (
           <div className="rah-map-wrapper" style={{ width: '100%', height: '100%' }}>
             <ReactFlow
-              nodes={rfNodes}
-              edges={rfEdges}
+              nodes={displayNodes}
+              edges={displayEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={handleNodeClickHandler}
