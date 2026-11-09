@@ -531,53 +531,69 @@ function MapPaneInner({
     return () => window.clearTimeout(timeout);
   }, [searchQuery]);
 
-  // Frame the camera on the TARGET layout, not the rendered positions, which are still
-  // mid-animation when the view changes.
+  // Camera framing. Fits the TARGET layout with any dragged positions applied, not the
+  // rendered positions (still mid-animation after a view change), and sizes every node for
+  // its full label, so labels that expand after the fit still fit. Returns false when
+  // there is nothing to frame yet (e.g. the focused note has not loaded).
+  const fitCamera = useCallback((): boolean => {
+    if (layoutNodes.length === 0) return false;
+    const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
+    dragOverridesRef.current.forEach((position, id) => {
+      if (targets.has(id)) targets.set(id, position);
+    });
+
+    if (focusedGraph && selectedNodeId) {
+      const selected = targets.get(String(selectedNodeId));
+      if (!selected) return false;
+      void reactFlowInstance.setCenter(selected.x, selected.y, {
+        duration: reducedMotion ? 0 : 420,
+        zoom: 1.02,
+      }).then(rememberFittedZoom);
+      return true;
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const include = (x: number, y: number, width: number, height: number) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + width);
+      maxY = Math.max(maxY, y + height);
+    };
+    targets.forEach((position) => include(position.x, position.y, NODE_MAX_WIDTH, NODE_APPROX_HEIGHT));
+    // Halos extend beyond their outermost nodes; keep them (and their labels) in view.
+    haloGroups.forEach((group) => {
+      const halo = groupHull(group.memberIds.flatMap((id) => {
+        const position = targets.get(id);
+        return position ? [{ ...position, ...NODE_BOX }] : [];
+      }));
+      if (halo) include(halo.x, halo.y - NODE_APPROX_HEIGHT / 2, halo.width, halo.height + NODE_APPROX_HEIGHT / 2);
+    });
+    // Timeline date labels sit above the top lane.
+    timelineTicks.forEach((tick) => include(tick.position.x - 40, tick.position.y, 80, NODE_APPROX_HEIGHT));
+    void reactFlowInstance.fitBounds(
+      { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+      { padding: 0.18, duration: reducedMotion ? 0 : 420 },
+    ).then(rememberFittedZoom);
+    return true;
+  }, [focusedGraph, haloGroups, layoutNodes, reactFlowInstance, reducedMotion, rememberFittedZoom, selectedNodeId, timelineTicks]);
+
+  // Refit automatically only when the view changes (layout, overview/focused, focused
+  // note) or on first load, not on every data update: live updates and note edits should
+  // neither move the camera nor frame away from nodes the user dragged.
+  const fittedViewKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (loading || layoutNodes.length === 0) return;
+    const viewKey = `${viewMode}:${overviewLayout}:${selectedNodeId ?? ''}`;
+    if (fittedViewKeyRef.current === viewKey) return;
 
     const timeout = window.setTimeout(() => {
-      if (focusedGraph && selectedNodeId) {
-        const selectedNode = layoutNodes.find((node) => node.id === String(selectedNodeId));
-        if (selectedNode) {
-          void reactFlowInstance.setCenter(selectedNode.position.x, selectedNode.position.y, {
-            duration: reducedMotion ? 0 : 420,
-            zoom: 1.02,
-          }).then(rememberFittedZoom);
-        }
-        return;
-      }
-
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      const include = (x: number, y: number, width: number, height: number) => {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x + width);
-        maxY = Math.max(maxY, y + height);
-      };
-      layoutNodes.forEach(({ position }) => include(position.x, position.y, NODE_MAX_WIDTH, NODE_APPROX_HEIGHT));
-      // Halos extend beyond their outermost nodes; keep them (and their labels) in view.
-      const positionById = new Map(layoutNodes.map((node) => [node.id, node.position]));
-      haloGroups.forEach((group) => {
-        const halo = groupHull(group.memberIds.flatMap((id) => {
-          const position = positionById.get(id);
-          return position ? [{ ...position, ...NODE_BOX }] : [];
-        }));
-        if (halo) include(halo.x, halo.y - NODE_APPROX_HEIGHT / 2, halo.width, halo.height + NODE_APPROX_HEIGHT / 2);
-      });
-      // Timeline date labels sit above the top lane.
-      timelineTicks.forEach((tick) => include(tick.position.x - 40, tick.position.y, 80, NODE_APPROX_HEIGHT));
-      void reactFlowInstance.fitBounds(
-        { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
-        { padding: 0.18, duration: reducedMotion ? 0 : 420 },
-      ).then(rememberFittedZoom);
+      if (fitCamera()) fittedViewKeyRef.current = viewKey;
     }, 80);
-
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, rememberFittedZoom, selectedNodeId, timelineTicks]);
+  }, [fitCamera, layoutNodes, loading, overviewLayout, selectedNodeId, viewMode]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -723,9 +739,10 @@ function MapPaneInner({
     dragOverridesRef.current.set(node.id, { ...node.position });
   }, [springLayout]);
 
+  // Same framing as the automatic fit (full-label node sizes, dragged positions).
   const fitVisibleNodes = useCallback(() => {
-    void reactFlowInstance.fitView({ padding: 0.2, duration: reducedMotion ? 0 : 260 }).then(rememberFittedZoom);
-  }, [reactFlowInstance, reducedMotion, rememberFittedZoom]);
+    fitCamera();
+  }, [fitCamera]);
 
   return (
     <div ref={paneRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>

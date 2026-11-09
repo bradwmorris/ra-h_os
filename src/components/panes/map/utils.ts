@@ -392,7 +392,7 @@ function convexHull(points: Point[]): Point[] {
 
 /**
  * Outline that hugs a group of node boxes: the convex hull of the padded boxes with its
- * corners smoothed (quadratic curves through edge midpoints). Unlike an ellipse it follows
+ * corners rounded (radius at most the padding, so no member box is ever cut). Unlike an ellipse it follows
  * the group's actual shape, so neighbouring groups can sit close without large overlaps.
  */
 export function groupHull(
@@ -412,13 +412,28 @@ export function groupHull(
   const maxX = Math.max(...hull.map((p) => p.x));
   const maxY = Math.max(...hull.map((p) => p.y));
   const local = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
-  const mid = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   const fmt = (p: Point) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-
-  const start = mid(local[local.length - 1], local[0]);
-  let path = `M ${fmt(start)}`;
-  local.forEach((point, i) => {
-    path += ` Q ${fmt(point)} ${fmt(mid(point, local[(i + 1) % local.length]))}`;
+  // Round each corner with a radius no larger than the padding: the curve then cuts at
+  // most `padding` into the corner, so it never reaches a member's box. (Rounding through
+  // edge midpoints cut deep into long, thin groups and could cross the end nodes.)
+  const towards = (from: Point, to: Point, distance: number): Point => {
+    const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    return { x: from.x + ((to.x - from.x) / length) * distance, y: from.y + ((to.y - from.y) / length) * distance };
+  };
+  const roundedCorners = local.map((vertex, i) => {
+    const prev = local[(i - 1 + local.length) % local.length];
+    const next = local[(i + 1) % local.length];
+    const radius = Math.min(
+      padding,
+      Math.hypot(prev.x - vertex.x, prev.y - vertex.y) / 2,
+      Math.hypot(next.x - vertex.x, next.y - vertex.y) / 2,
+    );
+    return { entry: towards(vertex, prev, radius), vertex, exit: towards(vertex, next, radius) };
+  });
+  let path = `M ${fmt(roundedCorners[0].entry)}`;
+  roundedCorners.forEach((corner, i) => {
+    if (i > 0) path += ` L ${fmt(corner.entry)}`;
+    path += ` Q ${fmt(corner.vertex)} ${fmt(corner.exit)}`;
   });
   path += ' Z';
 

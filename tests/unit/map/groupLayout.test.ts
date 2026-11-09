@@ -295,3 +295,66 @@ describe('applyDragOverrides', () => {
     expect(overrides.has('a')).toBe(true);
   });
 });
+
+describe('groupHull containment', () => {
+  // Flatten the outline path (M / L / Q commands) into a polygon by sampling the curves.
+  function pathToPolygon(path: string): Array<{ x: number; y: number }> {
+    const tokens = path.match(/[MLQZ]|-?\d+(?:\.\d+)?/g)!;
+    const points: Array<{ x: number; y: number }> = [];
+    let current = { x: 0, y: 0 };
+    for (let i = 0; i < tokens.length;) {
+      const command = tokens[i++];
+      if (command === 'Z') continue;
+      if (command === 'M' || command === 'L') {
+        current = { x: Number(tokens[i++]), y: Number(tokens[i++]) };
+        points.push(current);
+      } else if (command === 'Q') {
+        const control = { x: Number(tokens[i++]), y: Number(tokens[i++]) };
+        const end = { x: Number(tokens[i++]), y: Number(tokens[i++]) };
+        for (let t = 0.1; t <= 1.0001; t += 0.1) {
+          const u = 1 - t;
+          points.push({
+            x: u * u * current.x + 2 * u * t * control.x + t * t * end.x,
+            y: u * u * current.y + 2 * u * t * control.y + t * t * end.y,
+          });
+        }
+        current = end;
+      }
+    }
+    return points;
+  }
+
+  function inside(point: { x: number; y: number }, polygon: Array<{ x: number; y: number }>): boolean {
+    let result = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+      const a = polygon[i];
+      const b = polygon[j];
+      if ((a.y > point.y) !== (b.y > point.y) && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+        result = !result;
+      }
+    }
+    return result;
+  }
+
+  const layouts: Record<string, Array<{ x: number; y: number; width: number; height: number }>> = {
+    'three in a row': [0, 300, 600].map((x) => ({ x, y: 0, width: 120, height: 32 })),
+    diagonal: [0, 1, 2, 3].map((i) => ({ x: i * 150, y: i * 60, width: 120, height: 32 })),
+    scattered: [
+      { x: 0, y: 0, width: 120, height: 32 }, { x: 400, y: 30, width: 90, height: 32 },
+      { x: 180, y: 260, width: 168, height: 32 }, { x: -120, y: 140, width: 120, height: 32 },
+    ],
+  };
+
+  it.each(Object.keys(layouts))('keeps every member box inside the outline (%s)', (name) => {
+    const rects = layouts[name];
+    const hull = groupHull(rects)!;
+    const polygon = pathToPolygon(hull.path).map((p) => ({ x: p.x + hull.x, y: p.y + hull.y }));
+    rects.forEach((rect) => {
+      const corners = [
+        { x: rect.x, y: rect.y }, { x: rect.x + rect.width, y: rect.y },
+        { x: rect.x + rect.width, y: rect.y + rect.height }, { x: rect.x, y: rect.y + rect.height },
+      ];
+      corners.forEach((corner) => expect(inside(corner, polygon)).toBe(true));
+    });
+  });
+});
