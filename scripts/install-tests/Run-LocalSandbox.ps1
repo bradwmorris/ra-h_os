@@ -57,9 +57,12 @@ $WsbPath  = Join-Path $env:TEMP "rah-install-test-$(Get-Random).wsb"
 # critically, lets the LogonCommand launch it via `cmd /c start` so a REAL,
 # VISIBLE console window is allocated (a bare powershell.exe in a LogonCommand
 # often runs without surfacing a window). runner.ps1 runs sandbox-bootstrap.ps1
-# as a CHILD powershell so install.ps1's `exit` can't close the -NoExit window,
+# as a CHILD powershell so an install.ps1 abort can't end the -NoExit window,
 # and tees all output to the log mount so it survives on the host.
 $SandboxBootstrap = "$SandboxSrc\scripts\install-tests\sandbox-bootstrap.ps1"
+# The key is embedded in a single-quoted PowerShell string in runner.ps1; double any
+# single quote so a key containing one cannot break out of the literal.
+$OpenAiKeyLiteral = $OpenAiKey -replace "'", "''"
 $runnerContent = @"
 # Use UTF-8 for the console + captured output so winget/ollama/Node progress
 # bars (Unicode block chars) render correctly in the log instead of CP850
@@ -69,7 +72,7 @@ chcp 65001 > `$null
 `$OutputEncoding = [System.Text.UTF8Encoding]::new()
 Write-Host '[ra-h] Testing installer in Windows Sandbox (mode: $Mode, profile: $AiProfile)' -ForegroundColor Green
 Set-Location `$env:USERPROFILE\Desktop
-$(if ($OpenAiKey) { "`$env:OPENAI_API_KEY = '$OpenAiKey'; " })powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
+$(if ($OpenAiKey) { "`$env:OPENAI_API_KEY = '$OpenAiKeyLiteral'; " })powershell.exe -ExecutionPolicy Bypass -File '$SandboxBootstrap' -SrcPath '$SandboxSrc' -Mode $Mode -Ref $Ref -AiProfile $AiProfile$(if ($Heavy) { ' -Heavy' })$(if ($Winget) { ' -Winget' }) 2>&1 | Tee-Object -FilePath '$LogFile'
 `$rc = `$LASTEXITCODE
 # Capture Ollama's own logs (they live in the sandbox profile and are wiped on
 # close) so a failed daemon start can be diagnosed from the host log folder.

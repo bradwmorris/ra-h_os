@@ -12,10 +12,11 @@ const npmCli = process.env.npm_execpath && /^npm-cli\.c?js$/.test(path.basename(
 // Fallback quoting for cmd.exe. cmd has no reliable escape for `"` inside a quoted
 // token and expands %VAR% even inside quotes, so refuse such arguments rather than
 // build a command line they could break out of.
-function quoteArg(a) {
+function quoteArg(a, index) {
   const s = String(a);
   if (/["%]/.test(s)) {
-    console.error(`[setup-local] Unsupported character in argument for the Windows shell fallback: ${s}`);
+    // Report the position, not the value: arguments may carry secrets.
+    console.error(`[setup-local] Argument ${index} contains " or %, which the Windows shell fallback cannot pass safely.`);
     process.exit(1);
   }
   return /[\s&|<>^()!]/.test(s) ? `"${s}"` : s;

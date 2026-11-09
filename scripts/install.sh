@@ -139,7 +139,9 @@ _ensure_zstd() {
     $_sudo yum install -y -q zstd
   elif command -v pacman >/dev/null 2>&1; then
     info "Installing zstd via pacman..."
-    $_sudo pacman -Sy --noconfirm zstd
+    # -S without -y: refreshing the package database without a full upgrade (-Sy) is a
+    # partial upgrade, which Arch does not support. --needed makes this a no-op if present.
+    $_sudo pacman -S --needed --noconfirm zstd
   else
     error "Could not detect a supported package manager to install zstd. Install it manually then re-run."
   fi
