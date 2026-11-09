@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Node as DbNode } from '@/types/database';
 import { UNLINKED } from '@/components/panes/map/communities';
+import { DEFAULT_FORCE_LAYOUT_OPTIONS } from '@/components/panes/map/forceLayout';
 import {
   groupHull,
   toRFNodes,
@@ -124,7 +125,8 @@ describe('overview layout', () => {
       for (let j = i + 1; j < ids.length; j += 1) {
         const p = byId.get(ids[i])!;
         const q = byId.get(ids[j])!;
-        const overlapping = Math.abs(p.x - q.x) < 120 && Math.abs(p.y - q.y) < 32;
+        const { width, height } = DEFAULT_FORCE_LAYOUT_OPTIONS.nodeBox;
+        const overlapping = Math.abs(p.x - q.x) < width - 0.5 && Math.abs(p.y - q.y) < height - 0.5;
         expect(overlapping).toBe(false);
       }
     }

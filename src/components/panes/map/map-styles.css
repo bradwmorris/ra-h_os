@@ -185,13 +185,14 @@ html[data-theme="light"] .rah-map-wrapper {
   position: absolute;
   top: 0;
   left: 50%;
-  transform: translate(-50%, calc(-100% - 4px));
+  /* Sits on the outline itself, like a tag on the line. */
+  transform: translate(-50%, -50%);
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--rah-bg-base);
   border: 1px solid color-mix(in srgb, var(--rah-map-group-color) 45%, transparent);
   color: var(--rah-map-group-color);
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   display: inline-flex;
@@ -237,4 +238,10 @@ html[data-theme="light"] .rah-map-wrapper {
 .rah-map-wrapper .react-flow__node-rahNode,
 .rah-map-wrapper .react-flow__edge {
   transition: opacity 0.15s ease;
+}
+
+/* On the map, type icons take their community colour (CSS overrides lucide's stroke
+   attribute; favicons are images and are unaffected). */
+.rah-map-node--grouped .rah-map-node__icon svg {
+  stroke: var(--rah-map-group-color);
 }

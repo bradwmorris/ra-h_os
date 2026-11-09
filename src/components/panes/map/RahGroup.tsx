@@ -11,8 +11,8 @@ export const GROUP_PALETTE_SIZE = 8;
 
 // Group labels are for the zoomed-out overview; they fade out as node labels become
 // readable (semantic zoom).
-const LABEL_FADE_START_ZOOM = 0.7;
-const LABEL_FADE_END_ZOOM = 1.1;
+const LABEL_FADE_START_ZOOM = 1.3;
+const LABEL_FADE_END_ZOOM = 1.8;
 
 /** CSS custom property holding a group's colour (see map-styles.css). */
 export function groupColorVar(index: number): string {

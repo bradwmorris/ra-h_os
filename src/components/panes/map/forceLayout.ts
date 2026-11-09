@@ -46,17 +46,19 @@ export interface ForceLayoutOptions {
   nodeBox: { width: number; height: number };
 }
 
-// Tuned on a real 135-node / 227-link graph: linear attraction keeps links between groups
-// ~35-40% shorter than LinLog while group gravity keeps each community together.
+// Tuned on a real 135-node / 227-link graph. Linear attraction keeps links between groups
+// short; strong group gravity keeps communities tight. The node box is the compact
+// (icon + hub label) size used in the zoomed-out overview, not a full label, which is
+// what lets the layout stay dense; full labels appear when zoomed in.
 export const DEFAULT_FORCE_LAYOUT_OPTIONS: ForceLayoutOptions = {
   iterations: 300,
-  repulsion: 3,
-  gravity: 0.6,
-  groupGravity: 2,
-  linkLength: 150,
+  repulsion: 2,
+  gravity: 1.5,
+  groupGravity: 4,
+  linkLength: 70,
   aspect: 1.8,
   attraction: 'linear',
-  nodeBox: { width: 128, height: 38 },
+  nodeBox: { width: 64, height: 30 },
 };
 
 interface Body {

@@ -11,7 +11,7 @@ type RahNodeType = Node<RahNodeData, 'rahNode'>;
 // Label level-of-detail: below this zoom, less prominent overview nodes show only their
 // icon so the hubs' labels stay readable. Boolean selector, so nodes re-render only when
 // the threshold is crossed.
-const COMPACT_BELOW_ZOOM = 0.75;
+const COMPACT_BELOW_ZOOM = 1.6;
 const HUB_PROMINENCE = 0.35;
 const zoomedOutSelector = (state: ReactFlowState) => state.transform[2] < COMPACT_BELOW_ZOOM;
 
