@@ -102,7 +102,7 @@ irm https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.p
   run: curl -fsSL https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.sh | bash -s -- --yes
 ```
 
-**Requirements:** Node.js v20.18.1+, git, npm. See [nodejs.org](https://nodejs.org) to install Node.js.
+**Requirements:** Node.js v22+, git, npm. See [nodejs.org](https://nodejs.org) to install Node.js.
 
 ## Local App Quick Start: OpenAI
 

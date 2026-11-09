@@ -21,6 +21,20 @@ function Ask   {
   $ans = Read-Host "[ra-h] $msg [y/N]"
   return $ans -match '^[Yy]'
 }
+# Windows PowerShell 5.1 does not stop on a native command's nonzero exit code,
+# even with $ErrorActionPreference = "Stop". Call this right after each native
+# command whose failure must abort the install.
+function Assert-NativeSuccess {
+  param($what)
+  if ($LASTEXITCODE -ne 0) { Abort "$what failed (exit code $LASTEXITCODE)." }
+}
+# The app requires Node 22+ (package.json engines, bootstrap-local.mjs).
+# Suffix stripping keeps pre-release tags such as "22.12.0-rc.1" parseable.
+$MinNodeMajor = 22
+function Get-NodeMajor {
+  $v = (node -e "process.stdout.write(process.versions.node)").Trim()
+  return [int](($v.Split('.')[0]) -replace '[^\d].*$','')
+}
 
 # -- git check ----------------------------------------------------------------
 
@@ -32,8 +46,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm -ErrorAction SilentlyContinue)) {
   Warn "Node.js is not installed."
-  if (Ask "Install Node.js v20 via winget now?") {
-    Info "Installing Node.js v20 LTS..."
+  if (Ask "Install Node.js LTS (v$MinNodeMajor+) via winget now?") {
+    Info "Installing Node.js LTS..."
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
       Abort "winget not available. Install Node.js manually from https://nodejs.org then re-run."
     }
@@ -45,43 +59,25 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command 
       Abort "Node.js installation failed. Install manually from https://nodejs.org"
     }
   } else {
-    Abort "Node.js v20.18.1+ is required. Install from https://nodejs.org then re-run."
+    Abort "Node.js v$MinNodeMajor+ is required. Install from https://nodejs.org then re-run."
   }
 }
 
-$nodeVersion = (node -e "process.stdout.write(process.versions.node)").Trim()
-$parts = $nodeVersion.Split('.')
-$major = [int]($parts[0] -replace '[^\d].*$','')
-$minor = [int]($parts[1] -replace '[^\d].*$','')
-$patch = [int]($parts[2] -replace '[^\d].*$','')
-
-$versionOk = ($major -gt 20) -or
-             ($major -eq 20 -and $minor -gt 18) -or
-             ($major -eq 20 -and $minor -eq 18 -and $patch -ge 1)
-
-if (-not $versionOk) {
-  Warn "Node.js v$nodeVersion is too old."
-  if (Ask "Upgrade Node.js to v20 LTS via winget now?") {
-    Info "Upgrading Node.js v20 LTS..."
+if ((Get-NodeMajor) -lt $MinNodeMajor) {
+  Warn "Node.js $(node --version) is too old."
+  if (Ask "Upgrade Node.js to the current LTS (v$MinNodeMajor+) via winget now?") {
+    Info "Upgrading Node.js to the current LTS..."
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-      Abort "winget not available. Install Node.js v20.18.1+ manually from https://nodejs.org then re-run."
+      Abort "winget not available. Install Node.js v$MinNodeMajor+ manually from https://nodejs.org then re-run."
     }
     winget install OpenJS.NodeJS.LTS --source winget --accept-package-agreements --accept-source-agreements --silent
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
                 $env:Path
-    $nodeVersion = (node -e "process.stdout.write(process.versions.node)").Trim()
-    $parts = $nodeVersion.Split('.')
-    $major = [int]($parts[0] -replace '[^\d].*$','')
-    $minor = [int]($parts[1] -replace '[^\d].*$','')
-    $patch = [int]($parts[2] -replace '[^\d].*$','')
-    $versionOk = ($major -gt 20) -or
-                 ($major -eq 20 -and $minor -gt 18) -or
-                 ($major -eq 20 -and $minor -eq 18 -and $patch -ge 1)
-    if (-not $versionOk) { Abort "Node.js upgrade did not reach v20.18.1+. Install manually from https://nodejs.org" }
-    Info "Node.js upgraded to v$nodeVersion."
+    if ((Get-NodeMajor) -lt $MinNodeMajor) { Abort "Node.js upgrade did not reach v$MinNodeMajor+. Install manually from https://nodejs.org" }
+    Info "Node.js upgraded to $(node --version)."
   } else {
-    Abort "Node.js v20.18.1 or higher is required (found v$nodeVersion). See https://nodejs.org"
+    Abort "Node.js v$MinNodeMajor or higher is required (found $(node --version)). See https://nodejs.org"
   }
 }
 
@@ -98,6 +94,7 @@ if (Test-Path $InstallDir) {
 } else {
   Info "Cloning RA-H OS into '$InstallDir'..."
   git clone $RepoUrl $InstallDir
+  Assert-NativeSuccess "git clone"
 }
 
 Set-Location $InstallDir
@@ -180,9 +177,11 @@ if ($AiProfile -eq "qwen-local") {
 
   Info "Pulling qwen3:4b (utility model)..."
   ollama pull qwen3:4b
+  Assert-NativeSuccess "ollama pull qwen3:4b"
 
   Info "Pulling qwen3-embedding:0.6b (embedding model)..."
   ollama pull qwen3-embedding:0.6b
+  Assert-NativeSuccess "ollama pull qwen3-embedding:0.6b"
 }
 
 if ($AiProfile -eq "llama-cpp") {
@@ -203,14 +202,18 @@ if ($AiProfile -eq "llama-cpp") {
 # -- Install & setup ----------------------------------------------------------
 
 Info "Installing dependencies..."
-npm install
+# Call npm.cmd, not npm: under the default Restricted execution policy the
+# npm.ps1 shim that `npm` resolves to is blocked from running.
+npm.cmd install
+Assert-NativeSuccess "npm install"
 
 Info "Running setup (profile: $AiProfile)..."
 if ($AiProfile -eq "llama-cpp") {
   $env:LLM_BASE_URL       = "http://127.0.0.1:$LlmPort/v1"
   $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
 }
-npm run setup:local -- --profile $AiProfile
+npm.cmd run setup:local -- --profile $AiProfile
+Assert-NativeSuccess "npm run setup:local"
 if (Test-Path ".env.local") {
   if ([string]::IsNullOrEmpty($env:USERNAME)) {
     Warn ".env.local exists but USERNAME env var is empty - skipping ACL hardening."

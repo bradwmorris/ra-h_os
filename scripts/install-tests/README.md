@@ -229,8 +229,8 @@ Each distro's full output is also streamed live AND written to a per-run log dir
 | Scenario | Image | What it asserts |
 |---|---|---|
 | `nvm-present-no-node` | `rah-test:nvm-no-node` | nvm installed but no Node → installer's "nvm detected" path runs silently |
-| `old-node-auto-upgrade` | `rah-test:old-node` | Node 18 pre-installed → installer's "too old — upgrading to v20 via nvm" recovery path runs and completes |
-| `prerelease-node-tag-no-crash` | `rah-test:prerelease-node` | Node 20 + version shim returning `20.18.1-rc.1` → installer parses suffix correctly without crashing bash arithmetic under `set -e` (regression guard for L-PASS5-1) |
+| `old-node-auto-upgrade` | `rah-test:old-node` | Node 18 pre-installed → installer's "too old — upgrading to v22 via nvm" recovery path runs and completes |
+| `prerelease-node-tag-no-crash` | `rah-test:prerelease-node` | Node 22 + version shim returning `22.12.0-rc.1` → installer parses suffix correctly without crashing bash arithmetic under `set -e` (regression guard for L-PASS5-1) |
 | `llama-cpp-with-mock-servers` | `rah-test:llama-cpp-mock` | `--profile llama-cpp` with `--llm-port 9090 --embedding-port 9091` and a Python mock returning 200 on `/v1/models` → reachability check uses custom ports and installer exits 0. **Limitation:** doesn't assert `.env.local` contains the custom URLs because `bootstrap-local.mjs` ignores those env vars today — tracked at [#16](https://github.com/bradwmorris/ra-h_os/issues/16) |
 
 The Tier 2 images are built once on first invocation (~2 min total — apt + nvm + Node install per image) and cached by Docker for subsequent runs. To force a rebuild after editing a Dockerfile:
@@ -266,7 +266,7 @@ Reboot afterward.
 - **`-Mode remote`** fetches `install.ps1` from `https://raw.githubusercontent.com/.../<Ref>/scripts/install.ps1` and runs it; the installer then clones the published repo (`main`). `-Ref` defaults to `main`.
 - **`-Winget`** installs winget (App Installer) into the sandbox and **skips** the portable Node/Ollama bootstrap, so `install.ps1`'s own winget paths run (`winget install OpenJS.NodeJS.LTS`, `winget install Ollama.Ollama`). Without it, the portable provisioning means the installer finds those deps already present and never calls winget. git is still bootstrapped either way (the installer requires it but never installs it). Use this to verify the winget branches that the default mock-free bootstrap bypasses.
 
-For a zero-setup remote smoke test with no repo mount, the static `windows-sandbox-remote.wsb` / `windows-sandbox-remote-qwen.wsb` still work — double-click them to boot a VM that runs `irm .../install.ps1 | iex` directly.
+For a zero-setup remote smoke test with no repo mount, the static `windows-sandbox-remote.wsb` / `windows-sandbox-remote-qwen.wsb` still work — double-click them to boot a VM that downloads `sandbox-bootstrap.ps1` from `main` and runs it with `-Mode remote` (a vanilla Sandbox has neither git nor winget, so `install.ps1` alone would stop at its git preflight).
 
 Close the Sandbox window when done — everything inside is wiped; the host log folder remains.
 

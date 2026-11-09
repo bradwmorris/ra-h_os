@@ -11,9 +11,12 @@
 #   -Mode remote           : fetch install.ps1 from GitHub at -Ref and run it,
 #                            letting it clone the published repo (main).
 #
-# Invoked only by Run-LocalSandbox.ps1 inside the sandbox. Never run on a host.
+# Invoked inside the sandbox only, never on a host: by Run-LocalSandbox.ps1
+# (either mode), or fetched from GitHub by the static windows-sandbox-remote*.wsb
+# shortcuts (remote mode, no mounted source).
 param(
-  [Parameter(Mandatory)][string]$SrcPath,
+  # Mounted working copy. Required for -Mode local; unused for -Mode remote.
+  [string]$SrcPath,
   [ValidateSet('local','remote')][string]$Mode = 'local',
   [string]$Ref       = 'main',
   [string]$AiProfile = 'openai',
@@ -55,6 +58,8 @@ function Install-VCRuntime {
   Start-Process -FilePath $vc -ArgumentList '/install', '/quiet', '/norestart' -Wait
   Info 'Visual C++ runtime installed.'
 }
+
+if ($Mode -eq 'local' -and -not $SrcPath) { throw '-SrcPath is required for -Mode local.' }
 
 Info "Mode: $Mode | Ref: $Ref | Profile: $AiProfile | Winget: $($Winget.IsPresent)"
 
@@ -174,7 +179,9 @@ if ($AiProfile -eq 'qwen-local' -and -not $Winget -and -not (Get-Command ollama 
 # install.ps1 probes /v1/models on the LLM + embedding ports (8080/8081, its
 # defaults) and aborts if nothing answers. Bring those ports up first:
 #   -Heavy : a REAL llama-server + GGUF models (downloads hundreds of MB)
-#   else   : a tiny Node mock (mirrors fixtures/llama-cpp-mock-server.py)
+#   else   : a tiny PowerShell mock (mirrors fixtures/llama-cpp-mock-server.py).
+#            Not Node: with -Winget, Node is deliberately absent until
+#            install.ps1 installs it, which happens after this point.
 if ($AiProfile -eq 'llama-cpp' -and $Heavy) {
   Info 'Provisioning REAL llama.cpp (server + models)...'
   $assetRe = if ($env:LLAMACPP_ASSET_RE) { $env:LLAMACPP_ASSET_RE } else { 'bin-win-cpu-x64\.zip' }
@@ -215,20 +222,32 @@ if ($AiProfile -eq 'llama-cpp' -and $Heavy) {
   else { Write-Host '[bootstrap] WARNING: real llama.cpp servers not reachable; install.ps1 may abort.' -ForegroundColor Yellow }
 }
 elseif ($AiProfile -eq 'llama-cpp') {
-  $mockJs = @'
-const http = require('http');
-for (const port of [8080, 8081]) {
-  http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"object":"list","data":[{"id":"mock"}]}');
-  }).listen(port, '127.0.0.1');
+  # Raw TcpListener rather than HttpListener: no URL ACL / admin requirement.
+  # Answers every request with the same /v1/models-shaped body, then closes.
+  $mockPs = @'
+$listeners = foreach ($port in 8080, 8081) {
+  $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+  $l.Start(); $l
 }
-setInterval(() => {}, 1e9);
+$body = '{"object":"list","data":[{"id":"mock"}]}'
+$resp = [System.Text.Encoding]::ASCII.GetBytes(
+  "HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n$body")
+$buf = New-Object byte[] 8192
+while ($true) {
+  foreach ($l in $listeners) {
+    if ($l.Pending()) {
+      $c = $l.AcceptTcpClient()
+      try { $s = $c.GetStream(); [void]$s.Read($buf, 0, $buf.Length); $s.Write($resp, 0, $resp.Length) }
+      finally { $c.Close() }
+    }
+  }
+  Start-Sleep -Milliseconds 50
+}
 '@
-  $mockPath = Join-Path $env:TEMP 'llama-cpp-mock.js'
-  [System.IO.File]::WriteAllText($mockPath, $mockJs, [System.Text.UTF8Encoding]::new($false))
+  $mockPath = Join-Path $env:TEMP 'llama-cpp-mock.ps1'
+  [System.IO.File]::WriteAllText($mockPath, $mockPs, [System.Text.UTF8Encoding]::new($false))
   Info 'Starting mock llama.cpp servers on 8080/8081...'
-  Start-Process node -ArgumentList $mockPath -WindowStyle Hidden
+  Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $mockPath -WindowStyle Hidden
   $ready = $false
   for ($i = 0; $i -lt 10; $i++) {
     try { Invoke-WebRequest 'http://127.0.0.1:8080/v1/models' -UseBasicParsing -TimeoutSec 1 | Out-Null; $ready = $true; break }

@@ -15,7 +15,7 @@ spawn bash /work/scripts/install.sh --profile openai
 # Phase 1: walk past the Node-install prompt (fresh image has no Node) and stop
 # at the OpenAI key prompt.
 expect {
-  -re {Install Node\.js v20 via nvm now} { send "y\r"; exp_continue }
+  -re {Install Node\.js v22 via nvm now} { send "y\r"; exp_continue }
   -re {OpenAI API key}                    { send "sk-test-interactive-123\r" }
   timeout { puts "\n[exp] TIMEOUT waiting for the OpenAI key prompt"; exit 3 }
 }

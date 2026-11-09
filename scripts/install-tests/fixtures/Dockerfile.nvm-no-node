@@ -1,5 +1,5 @@
 # Pre-seeded state: nvm is installed but no Node version has been installed.
-# Exercises install.sh's "nvm detected — using it to install Node.js v20" path.
+# Exercises install.sh's "nvm detected — using it to install Node.js v22" path.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

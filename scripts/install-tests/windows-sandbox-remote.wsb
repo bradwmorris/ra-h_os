@@ -2,6 +2,6 @@
   <Networking>Enable</Networking>
   <MemoryInMB>4096</MemoryInMB>
   <LogonCommand>
-    <Command>powershell.exe -NoExit -ExecutionPolicy Bypass -Command "Write-Host '[ra-h] Testing install.ps1 (remote, main branch) in Windows Sandbox' -ForegroundColor Green; Set-Location $env:USERPROFILE; &amp; ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install.ps1))) -Yes"</Command>
+    <Command>powershell.exe -NoExit -ExecutionPolicy Bypass -Command "Write-Host '[ra-h] Testing install.ps1 (remote, main branch) in Windows Sandbox' -ForegroundColor Green; Set-Location $env:USERPROFILE; $b = Join-Path $env:TEMP 'sandbox-bootstrap.ps1'; Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/bradwmorris/ra-h_os/main/scripts/install-tests/sandbox-bootstrap.ps1 -OutFile $b; powershell.exe -ExecutionPolicy Bypass -File $b -Mode remote -Ref main -AiProfile openai"</Command>
   </LogonCommand>
 </Configuration>

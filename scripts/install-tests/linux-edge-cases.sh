@@ -7,8 +7,8 @@
 #   non-git-dir-errors           existing non-git dir → clear error, non-zero exit
 #   rerun-uses-pull              re-running → git pull instead of fresh clone
 #   nvm-present-no-node          nvm installed but no Node → installer uses nvm silently
-#   old-node-auto-upgrade        Node 18 present → installer upgrades to 20 via nvm
-#   prerelease-node-tag-no-crash Node version string "20.18.1-rc.1" → no arithmetic crash
+#   old-node-auto-upgrade        Node 18 present → installer upgrades to 22 via nvm
+#   prerelease-node-tag-no-crash Node version string "22.12.0-rc.1" → no arithmetic crash
 #   llama-cpp-with-mock-servers  --profile llama-cpp + custom ports → reachability check passes
 #   openai-interactive-key       interactive (no --yes) key prompt via expect → key written to .env.local
 #
@@ -100,15 +100,15 @@ run_scenario "rerun-uses-pull" "$IMAGE" 0 "pulling latest changes" \
 
 # ── Tier 2: pre-seeded-image scenarios ──────────────────────────────────────
 
-# nvm installed, no Node → install.sh uses nvm silently to install Node 20
+# nvm installed, no Node → install.sh uses nvm silently to install Node 22
 run_scenario "nvm-present-no-node" "rah-test:nvm-no-node" 0 "nvm detected" \
   "cd /tmp && OPENAI_API_KEY=sk-test-placeholder bash /work/scripts/install.sh --yes"
 
 # Node 18 (too old) → install.sh detects and runs nvm recovery to upgrade
-run_scenario "old-node-auto-upgrade" "rah-test:old-node" 0 "is too old — upgrading to v20 via nvm" \
+run_scenario "old-node-auto-upgrade" "rah-test:old-node" 0 "is too old — upgrading to v22 via nvm" \
   "cd /tmp && OPENAI_API_KEY=sk-test-placeholder bash /work/scripts/install.sh --yes"
 
-# Node version shim returns "20.18.1-rc.1" → suffix-strip prevents arithmetic crash
+# Node version shim returns "22.12.0-rc.1" → suffix-strip prevents arithmetic crash
 run_scenario "prerelease-node-tag-no-crash" "rah-test:prerelease-node" 0 "Installation complete" \
   "cd /tmp && OPENAI_API_KEY=sk-test-placeholder bash /work/scripts/install.sh --yes"
 

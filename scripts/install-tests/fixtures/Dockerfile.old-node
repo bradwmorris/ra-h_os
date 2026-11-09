@@ -1,4 +1,4 @@
-# Pre-seeded state: nvm + Node 18.x (LTS — too old per install.sh's 20.18.1 floor).
+# Pre-seeded state: nvm + Node 18.x (LTS — too old per install.sh's Node 22 floor).
 # Exercises install.sh's "Node exists but too old — upgrade via nvm" recovery path.
 FROM ubuntu:24.04
 

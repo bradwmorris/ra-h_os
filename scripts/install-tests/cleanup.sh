@@ -104,13 +104,21 @@ fi
 if [[ -n "$LOG_DIRS" ]]; then
   echo ""
   echo "Removing log directories..."
-  echo "$LOG_DIRS" | xargs -r rm -rf && remove_count=$((remove_count+1))
+  # One path per line, passed whole: xargs would split a checkout path containing
+  # spaces and could delete an unrelated prefix directory.
+  while IFS= read -r _path; do
+    [[ -n "$_path" ]] && rm -rf -- "$_path"
+  done <<< "$LOG_DIRS"
+  remove_count=$((remove_count+1))
 fi
 
 if [[ -n "$LOG_FILES" ]]; then
   echo ""
   echo "Removing log files..."
-  echo "$LOG_FILES" | xargs -r rm -f && remove_count=$((remove_count+1))
+  while IFS= read -r _path; do
+    [[ -n "$_path" ]] && rm -f -- "$_path"
+  done <<< "$LOG_FILES"
+  remove_count=$((remove_count+1))
 fi
 
 if $WITH_BUILD_CACHE; then

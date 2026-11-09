@@ -51,57 +51,42 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
   if command -v nvm >/dev/null 2>&1; then
-    info "nvm detected — using it to install Node.js v20..."
-    nvm install 20
-    nvm use 20
-  elif ask "Install Node.js v20 via nvm now?"; then
-    info "Installing nvm and Node.js v20..."
+    info "nvm detected — using it to install Node.js v22..."
+    nvm install 22
+    nvm use 22
+  elif ask "Install Node.js v22 via nvm now?"; then
+    info "Installing nvm and Node.js v22..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    nvm install 20
-    nvm use 20
+    nvm install 22
+    nvm use 22
   else
-    error "Node.js v20.18.1+ is required. Install from https://nodejs.org then re-run."
+    error "Node.js v22+ is required. Install from https://nodejs.org then re-run."
   fi
   command -v node >/dev/null 2>&1 || error "Node.js installation failed. Install manually from https://nodejs.org"
 fi
 
-IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
-NODE_MAJOR="${NODE_MAJOR%%[!0-9]*}"
-NODE_MINOR="${NODE_MINOR%%[!0-9]*}"
-NODE_PATCH="${NODE_PATCH%%[!0-9]*}"
+# The app requires Node 22+ (package.json engines, bootstrap-local.mjs), so only the
+# major version matters. Suffix stripping keeps pre-release tags such as
+# "22.12.0-rc.1" from breaking bash arithmetic under set -e.
+_node_major() {
+  local _major
+  IFS=. read -r _major _ <<< "$(node -p 'process.versions.node')"
+  echo "${_major%%[!0-9]*}"
+}
 
-version_ok=false
-if [[ "$NODE_MAJOR" -gt 20 ]]; then
-  version_ok=true
-elif [[ "$NODE_MAJOR" -eq 20 ]]; then
-  if [[ "$NODE_MINOR" -gt 18 ]]; then
-    version_ok=true
-  elif [[ "$NODE_MINOR" -eq 18 && "$NODE_PATCH" -ge 1 ]]; then
-    version_ok=true
-  fi
-fi
-
-if ! $version_ok; then
+NODE_MAJOR="$(_node_major)"
+if [[ "${NODE_MAJOR:-0}" -lt 22 ]]; then
   # Node exists but is too old — attempt upgrade via nvm before giving up
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
   if command -v nvm >/dev/null 2>&1; then
-    warn "Node.js $(node -v) is too old — upgrading to v20 via nvm..."
-    nvm install 20
-    nvm use 20
-    IFS=. read -r NODE_MAJOR NODE_MINOR NODE_PATCH <<< "$(node -p 'process.versions.node')"
-    NODE_MAJOR="${NODE_MAJOR%%[!0-9]*}"; NODE_MINOR="${NODE_MINOR%%[!0-9]*}"; NODE_PATCH="${NODE_PATCH%%[!0-9]*}"
-    version_ok=false
-    if [[ "$NODE_MAJOR" -gt 20 ]]; then
-      version_ok=true
-    elif [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -gt 18 ]]; then
-      version_ok=true
-    elif [[ "$NODE_MAJOR" -eq 20 && "$NODE_MINOR" -eq 18 && "$NODE_PATCH" -ge 1 ]]; then
-      version_ok=true
-    fi
+    warn "Node.js $(node -v) is too old — upgrading to v22 via nvm..."
+    nvm install 22
+    nvm use 22
+    NODE_MAJOR="$(_node_major)"
   fi
-  $version_ok || error "Node.js v20.18.1 or higher is required (found $(node -v)). See https://nodejs.org"
+  [[ "${NODE_MAJOR:-0}" -ge 22 ]] || error "Node.js v22 or higher is required (found $(node -v)). See https://nodejs.org"
 fi
 
 # ── Clone ────────────────────────────────────────────────────────────────────
@@ -178,7 +163,10 @@ if [[ "$PROFILE" == "qwen-local" ]]; then
     warn "Ollama is not installed."
     if ask "Install Ollama now?"; then
       info "Installing Ollama..."
-      if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        # Ollama's install.sh and _ensure_zstd are Linux-only; macOS needs Homebrew or the app.
+        command -v brew >/dev/null 2>&1 \
+          || error "Installing Ollama on macOS requires Homebrew (https://brew.sh). Alternatively install the Ollama app from https://ollama.com/download, then re-run."
         brew install ollama
       else
         _ensure_zstd

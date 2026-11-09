@@ -122,8 +122,10 @@ for entry in "${DISTROS_ARR[@]}"; do
   docker_args=(run --rm -e OPENAI_API_KEY=sk-test-placeholder)
   [[ "$MODE" == "local" ]] && docker_args+=(-v "$REPO_ROOT:/work:ro")
 
-  # tee streams live AND captures to file; PIPESTATUS preserves docker's exit code through the pipe
-  docker "${docker_args[@]}" "$image" bash -c "$bootstrap && cd /tmp && $PREP$INSTALL_CMD" 2>&1 | tee "$log_file"
+  # tee streams live AND captures to file; PIPESTATUS preserves docker's exit code through the pipe.
+  # pipefail inside the container too: in remote mode a failed `curl | bash` download
+  # (e.g. a 404 for an unpublished REF) must fail the run, not pipe empty input to bash.
+  docker "${docker_args[@]}" "$image" bash -o pipefail -c "$bootstrap && cd /tmp && $PREP$INSTALL_CMD" 2>&1 | tee "$log_file"
   status=${PIPESTATUS[0]}
 
   if [[ "$status" -eq 0 ]]; then

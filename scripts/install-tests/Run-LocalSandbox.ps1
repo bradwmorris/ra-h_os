@@ -97,18 +97,23 @@ $logonCmd = "cmd.exe /c start `"ra-h installer`" powershell.exe -NoExit -Executi
 # run local model servers, so give them more headroom than the openai default.
 $MemMB = if ($AiProfile -eq 'qwen-local' -or $Heavy) { 8192 } else { 4096 }
 
+# Host paths may legally contain XML metacharacters (e.g. C:\R&D\ra-h_os);
+# escape them or the generated .wsb is malformed and Sandbox will not launch.
+$RepoRootXml = [System.Security.SecurityElement]::Escape($RepoRoot)
+$HostLogXml  = [System.Security.SecurityElement]::Escape($HostLog)
+
 @"
 <Configuration>
   <Networking>Enable</Networking>
   <MemoryInMB>$MemMB</MemoryInMB>
   <MappedFolders>
     <MappedFolder>
-      <HostFolder>$RepoRoot</HostFolder>
+      <HostFolder>$RepoRootXml</HostFolder>
       <SandboxFolder>$SandboxSrc</SandboxFolder>
       <ReadOnly>true</ReadOnly>
     </MappedFolder>
     <MappedFolder>
-      <HostFolder>$HostLog</HostFolder>
+      <HostFolder>$HostLogXml</HostFolder>
       <SandboxFolder>$SandboxLog</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>
