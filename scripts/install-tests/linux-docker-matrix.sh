@@ -128,7 +128,9 @@ for entry in "${DISTROS_ARR[@]}"; do
   docker "${docker_args[@]}" "$image" bash -o pipefail -c "$bootstrap && cd /tmp && $PREP$INSTALL_CMD" 2>&1 | tee "$log_file"
   status=${PIPESTATUS[0]}
 
-  if [[ "$status" -eq 0 ]]; then
+  # PASS needs exit 0 AND the installer's completion marker: an empty or early-returning
+  # installer can also exit 0 without installing anything.
+  if [[ "$status" -eq 0 ]] && grep -q "Installation complete!" "$log_file"; then
     results+=("PASS  $image  ($log_file)")
   else
     results+=("FAIL  $image  ($log_file)")

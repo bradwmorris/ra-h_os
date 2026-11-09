@@ -44,6 +44,10 @@ command -v git >/dev/null 2>&1 || error "git is required but not installed. See 
 
 # ── Node.js check ────────────────────────────────────────────────────────────
 
+# Set when this run selects Node via nvm. Under `curl | bash` that only changes this
+# child shell's PATH, so the printed start command must carry the Node bin dir.
+_NODE_VIA_NVM=false
+
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   warn "Node.js is not installed."
   # Source nvm if already present but not yet loaded in this shell
@@ -54,12 +58,14 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
     info "nvm detected — using it to install Node.js v22..."
     nvm install 22
     nvm use 22
+    _NODE_VIA_NVM=true
   elif ask "Install Node.js v22 via nvm now?"; then
     info "Installing nvm and Node.js v22..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     nvm install 22
     nvm use 22
+    _NODE_VIA_NVM=true
   else
     error "Node.js v22+ is required. Install from https://nodejs.org then re-run."
   fi
@@ -84,6 +90,7 @@ if [[ "${NODE_MAJOR:-0}" -lt 22 ]]; then
     warn "Node.js $(node -v) is too old — upgrading to v22 via nvm..."
     nvm install 22
     nvm use 22
+    _NODE_VIA_NVM=true
     NODE_MAJOR="$(_node_major)"
   fi
   [[ "${NODE_MAJOR:-0}" -ge 22 ]] || error "Node.js v22 or higher is required (found $(node -v)). See https://nodejs.org"
@@ -256,7 +263,12 @@ if [[ "$PROFILE" == "openai" ]]; then
   if [[ -n "$_oai_key" ]]; then
     _oai_key_esc=$(printf '%s' "$_oai_key" | sed 's/[\\&|]/\\&/g')
     if grep -q "^OPENAI_API_KEY=" .env.local 2>/dev/null; then
-      sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key_esc|" .env.local && rm -f .env.local.bak
+      # Explicit check: a command before && is exempt from set -e, so a failed rewrite
+      # would otherwise fall through to "saved". Keep the backup unless the write succeeded.
+      if ! sed -i.bak "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$_oai_key_esc|" .env.local; then
+        error "Could not update OPENAI_API_KEY in .env.local (a backup may remain at .env.local.bak)."
+      fi
+      rm -f .env.local.bak
     else
       printf '\nOPENAI_API_KEY=%s\n' "$_oai_key" >> .env.local  # raw key — printf doesn't interpret metacharacters
     fi
@@ -289,8 +301,14 @@ fi
 echo ""
 info "Installation complete!"
 echo ""
-# %q shell-escapes the directory so the printed command is copy-pasteable for paths with spaces.
-printf '  Start the app:  cd %q && npm run dev\n' "$INSTALL_DIR"
+# %q shell-escapes paths so the printed command is copy-pasteable for paths with spaces.
+if [[ "$_NODE_VIA_NVM" == "true" ]]; then
+  # The caller's terminal does not have this run's nvm-selected Node on its PATH.
+  printf '  Start the app:  cd %q && PATH=%q:"$PATH" npm run dev\n' \
+    "$INSTALL_DIR" "$(dirname "$(command -v node)")"
+else
+  printf '  Start the app:  cd %q && npm run dev\n' "$INSTALL_DIR"
+fi
 echo "  Then open:      http://localhost:3000"
 echo ""
 echo "  Optional MCP setup (Claude Code / Cursor):"
