@@ -121,6 +121,11 @@ for entry in "${DISTROS_ARR[@]}"; do
 
   docker_args=(run --rm -e OPENAI_API_KEY=sk-test-placeholder)
   [[ "$MODE" == "local" ]] && docker_args+=(-v "$REPO_ROOT:/work:ro")
+  # Forward the documented llama-real-setup.sh overrides (for when upstream asset or
+  # model URLs move); without -e they never reach the container.
+  for _var in LLAMACPP_ASSET_RE CHAT_GGUF_URL EMBED_GGUF_URL; do
+    if [[ -n "${!_var:-}" ]]; then docker_args+=(-e "$_var=${!_var}"); fi
+  done
 
   # tee streams live AND captures to file; PIPESTATUS preserves docker's exit code through the pipe.
   # pipefail inside the container too: in remote mode a failed `curl | bash` download

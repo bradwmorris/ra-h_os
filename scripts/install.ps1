@@ -14,7 +14,22 @@ $RepoUrl = "https://github.com/bradwmorris/ra-h_os.git"
 
 function Info  { param($msg) Write-Host "[ra-h] $msg" -ForegroundColor Green }
 function Warn  { param($msg) Write-Host "[ra-h] $msg" -ForegroundColor Yellow }
-function Abort { param($msg) Write-Host "[ra-h] ERROR: $msg" -ForegroundColor Red; exit 1 }
+function Abort {
+  param($msg)
+  Write-Host "[ra-h] ERROR: $msg" -ForegroundColor Red
+  Restore-CallerLocation
+  exit 1
+}
+# The documented `irm | iex` invocation runs in the caller's session, so entering the
+# install directory would otherwise leave their terminal there, and re-running the
+# one-liner would then clone a nested ra-h_os\ra-h_os. Restore it on success and abort.
+$script:RahEnteredInstallDir = $false
+function Restore-CallerLocation {
+  if ($script:RahEnteredInstallDir) {
+    Pop-Location -StackName 'ra-h-install' -ErrorAction SilentlyContinue
+    $script:RahEnteredInstallDir = $false
+  }
+}
 function Ask   {
   param($msg)
   if ($Yes) { return $true }
@@ -97,7 +112,8 @@ if (Test-Path $InstallDir) {
   Assert-NativeSuccess "git clone"
 }
 
-Set-Location $InstallDir
+Push-Location -Path $InstallDir -StackName 'ra-h-install'
+$script:RahEnteredInstallDir = $true
 
 # -- Profile pre-flight -------------------------------------------------------
 
@@ -305,8 +321,7 @@ if (Test-Path $vecDll) {
 Write-Host ""
 Info "Installation complete!"
 Write-Host ""
-# Absolute path: under `irm | iex` this session is already inside the install
-# directory, so a relative `cd ra-h_os` would point at a nonexistent nested folder.
+# Absolute path so the printed command works from any directory.
 # npm.cmd / npx.cmd: the npm.ps1 / npx.ps1 shims are blocked by a Restricted policy.
 $installPath = (Get-Location).Path
 Write-Host "  Start the app:  cd '$($installPath -replace "'", "''")'; npm.cmd run dev"
@@ -315,3 +330,4 @@ Write-Host ""
 Write-Host "  Optional MCP setup (Claude Code / Cursor):"
 Write-Host "  npx.cmd -y ra-h-mcp-server@latest setup --client claude-code --yes"
 Write-Host ""
+Restore-CallerLocation

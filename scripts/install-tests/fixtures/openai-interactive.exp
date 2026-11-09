@@ -18,11 +18,19 @@ expect {
   -re {Install Node\.js v22 via nvm now} { send "y\r"; exp_continue }
   -re {OpenAI API key}                    { send "sk-test-interactive-123\r" }
   timeout { puts "\n[exp] TIMEOUT waiting for the OpenAI key prompt"; exit 3 }
+  eof     { puts "\n[exp] installer exited before the OpenAI key prompt"; exit 5 }
 }
 
 # Phase 2: confirm the installer finishes.
 expect {
   -re {Installation complete} { }
   timeout { puts "\n[exp] TIMEOUT waiting for 'Installation complete'"; exit 4 }
+  eof     { puts "\n[exp] installer exited before 'Installation complete'"; exit 5 }
 }
 expect eof
+
+# expect does not propagate the spawned process's exit status on its own; a
+# nonzero installer exit must fail the scenario even if the key was written.
+lassign [wait] _pid _spawn_id os_error status
+if {$os_error != 0} { puts "\n[exp] could not reap installer (errno $status)"; exit 6 }
+if {$status != 0}   { puts "\n[exp] installer exited with status $status"; exit $status }
