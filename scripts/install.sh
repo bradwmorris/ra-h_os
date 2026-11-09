@@ -140,8 +140,11 @@ _start_ollama() {
   local _ollama_pid=""
   if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1 && brew list ollama &>/dev/null; then
     brew services start ollama
-  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files ollama.service | grep -q ollama.service; then
-    sudo systemctl start ollama
+  # /run/systemd/system exists only when systemd is the running init; WSL and containers
+  # can ship systemctl and a unit file without it, and must use the nohup fallback.
+  elif [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1 \
+       && systemctl list-unit-files ollama.service | grep -q ollama.service; then
+    if [[ "$(id -u)" -eq 0 ]]; then systemctl start ollama; else sudo systemctl start ollama; fi
   else
     nohup ollama serve >/dev/null 2>&1 &
     _ollama_pid=$!
@@ -286,7 +289,8 @@ fi
 echo ""
 info "Installation complete!"
 echo ""
-echo "  Start the app:  cd $INSTALL_DIR && npm run dev"
+# %q shell-escapes the directory so the printed command is copy-pasteable for paths with spaces.
+printf '  Start the app:  cd %q && npm run dev\n' "$INSTALL_DIR"
 echo "  Then open:      http://localhost:3000"
 echo ""
 echo "  Optional MCP setup (Claude Code / Cursor):"

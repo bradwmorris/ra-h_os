@@ -208,17 +208,28 @@ npm.cmd install
 Assert-NativeSuccess "npm install"
 
 Info "Running setup (profile: $AiProfile)..."
-if ($AiProfile -eq "llama-cpp") {
-  $env:LLM_BASE_URL       = "http://127.0.0.1:$LlmPort/v1"
-  $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
+# The documented `irm | iex` invocation runs in the caller's session, so scope the
+# llama.cpp URL overrides to this setup run and restore the previous values after
+# (a later qwen-local install in the same session must not inherit them).
+$prevLlmBaseUrl       = $env:LLM_BASE_URL
+$prevEmbeddingBaseUrl = $env:EMBEDDING_BASE_URL
+try {
+  if ($AiProfile -eq "llama-cpp") {
+    $env:LLM_BASE_URL       = "http://127.0.0.1:$LlmPort/v1"
+    $env:EMBEDDING_BASE_URL = "http://127.0.0.1:$EmbeddingPort/v1"
+  }
+  npm.cmd run setup:local -- --profile $AiProfile
+  Assert-NativeSuccess "npm run setup:local"
+} finally {
+  $env:LLM_BASE_URL       = $prevLlmBaseUrl
+  $env:EMBEDDING_BASE_URL = $prevEmbeddingBaseUrl
 }
-npm.cmd run setup:local -- --profile $AiProfile
-Assert-NativeSuccess "npm run setup:local"
 if (Test-Path ".env.local") {
   if ([string]::IsNullOrEmpty($env:USERNAME)) {
     Warn ".env.local exists but USERNAME env var is empty - skipping ACL hardening."
   } else {
     icacls ".env.local" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+    Assert-NativeSuccess "Restricting .env.local permissions (icacls)"
   }
 }
 
@@ -227,7 +238,9 @@ if (Test-Path ".env.local") {
 if ($AiProfile -eq "openai") {
   $oaiKeyPlain   = $env:OPENAI_API_KEY
   $envLocal      = ".env.local"
-  $keyAlreadySet = (Test-Path $envLocal) -and (Get-Content $envLocal -Raw) -match '(?m)^OPENAI_API_KEY=.'
+  # -Encoding UTF8: bootstrap writes .env.local as BOM-less UTF-8, which Windows
+  # PowerShell 5.1 would otherwise read as ANSI and corrupt non-ASCII values on rewrite.
+  $keyAlreadySet = (Test-Path $envLocal) -and (Get-Content $envLocal -Raw -Encoding UTF8) -match '(?m)^OPENAI_API_KEY=.'
 
   if ($oaiKeyPlain) {
     Info "OPENAI_API_KEY found in environment - writing to .env.local."
@@ -254,7 +267,7 @@ if ($AiProfile -eq "openai") {
     # $oaiKeyEsc only needed for -replace (where $ is a regex backreference);
     # string interpolation and AppendAllText do not interpret metacharacters.
     if (Test-Path $envLocal) {
-      $content = Get-Content $envLocal -Raw
+      $content = Get-Content $envLocal -Raw -Encoding UTF8
       if ($content -match '(?m)^OPENAI_API_KEY=') {
         $content = $content -replace '(?m)^OPENAI_API_KEY=.*', "OPENAI_API_KEY=$oaiKeyEsc"
       } else {
@@ -266,6 +279,7 @@ if ($AiProfile -eq "openai") {
     }
     if (-not [string]::IsNullOrEmpty($env:USERNAME)) {
       icacls $envLocal /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+      Assert-NativeSuccess "Restricting .env.local permissions (icacls)"
     }
     Info "OpenAI API key saved to .env.local"
   } elseif (-not $Yes -and -not $keyAlreadySet) {
@@ -291,9 +305,13 @@ if (Test-Path $vecDll) {
 Write-Host ""
 Info "Installation complete!"
 Write-Host ""
-Write-Host "  Start the app:  cd $InstallDir; npm run dev"
+# Absolute path: under `irm | iex` this session is already inside the install
+# directory, so a relative `cd ra-h_os` would point at a nonexistent nested folder.
+# npm.cmd / npx.cmd: the npm.ps1 / npx.ps1 shims are blocked by a Restricted policy.
+$installPath = (Get-Location).Path
+Write-Host "  Start the app:  cd '$($installPath -replace "'", "''")'; npm.cmd run dev"
 Write-Host "  Then open:      http://localhost:3000"
 Write-Host ""
 Write-Host "  Optional MCP setup (Claude Code / Cursor):"
-Write-Host "  npx -y ra-h-mcp-server@latest setup --client claude-code --yes"
+Write-Host "  npx.cmd -y ra-h-mcp-server@latest setup --client claude-code --yes"
 Write-Host ""
