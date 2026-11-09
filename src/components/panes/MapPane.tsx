@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import {
   ReactFlow,
   Background,
   useNodesState,
   useEdgesState,
   type NodeMouseHandler,
+  type OnNodeDrag,
   type Node as RFNode,
   type Edge as RFEdge,
   ReactFlowProvider,
@@ -16,28 +17,137 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import type { Edge as DbEdge, Node as DbNode } from '@/types/database';
+import { Boxes, CircleDot, LayoutGrid, ListStart, Network } from 'lucide-react';
 import PaneHeader from './PaneHeader';
+import { SegmentedControl, type SegmentedOption } from '@/components/common/SegmentedControl';
 import type { MapPaneProps } from './types';
 import { RahNode } from './map/RahNode';
+import { RahGroup } from './map/RahGroup';
+import { RahTick, type RahTickData } from './map/RahTick';
 import { RahEdge } from './map/RahEdge';
 import {
   buildAdjacency,
   buildDegreeMap,
   buildFocusedGraph,
+  describeGroups,
+  groupBand,
+  groupHull,
+  computeTimelineLayout,
+  createdAtTimes,
   toRFNodes,
   toRFEdges,
+  withUngroupedAsUnlinked,
+  applyDragOverrides,
+  planCamera,
+  NODE_BOX,
   NODE_LIMIT,
+  type MapGroup,
+  type OverviewLayout,
+  isOverviewLayout,
+  DEFAULT_OVERVIEW_LAYOUT,
+  OUTLINED_LAYOUTS,
   type MapViewMode,
+  type RahGroupData,
   type RahNodeData,
 } from './map/utils';
+import { detectCommunities, UNLINKED } from './map/communities';
+import { useSpringLayout } from './map/useSpringLayout';
+import { CompactBelowZoomContext, FIT_LABEL_MARGIN } from './map/labelZoom';
+import type { Point } from './map/springLayout';
 import { useTheme } from '@/hooks/useTheme';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { usePersistentState } from '@/hooks/usePersistentState';
 import './map/map-styles.css';
 
-const nodeTypes = { rahNode: RahNode };
+type RahFlowNode = RFNode<RahNodeData, 'rahNode'>;
+type GroupFlowNode = RFNode<RahGroupData, 'rahGroup'>;
+type TickFlowNode = RFNode<RahTickData, 'rahTick'>;
+type MapFlowNode = RahFlowNode | GroupFlowNode | TickFlowNode;
+
+/** Decorations drawn behind the graph: group outlines and (timeline) date ticks. */
+interface MapOverlay {
+  groups: MapGroup[];
+  /** Rounded-rectangle lanes instead of hulls (timeline). */
+  bands: boolean;
+  ticks: TickFlowNode[];
+}
+
+const EMPTY_OVERLAY: MapOverlay = { groups: [], bands: false, ticks: [] };
+
+const nodeTypes = { rahNode: RahNode, rahGroup: RahGroup, rahTick: RahTick };
+const OVERVIEW_LAYOUT_KEY = 'ui.map.overviewLayout.v1';
+const LAYOUT_OPTIONS: Array<SegmentedOption<OverviewLayout>> = [
+  { value: 'original', label: 'Original', icon: <CircleDot size={13} />, title: 'Original: most-linked notes in the centre' },
+  { value: 'timeline', label: 'Timeline', icon: <ListStart size={13} />, title: 'Timeline: notes by creation date, one row per topic' },
+  { value: 'grouped', label: 'Grouped', icon: <Boxes size={13} />, title: 'Grouped: topics pulled together, with links between them' },
+  { value: 'network', label: 'Network', icon: <Network size={13} />, title: 'Network: pure link structure, no grouping' },
+  { value: 'islands', label: 'Islands', icon: <LayoutGrid size={13} />, title: 'Islands: each topic in its own region' },
+];
+
+// Communities smaller than this get a colour accent but no halo, to avoid clutter.
+const MIN_HALO_MEMBERS = 3;
+
+function isRahNode(node: MapFlowNode): node is RahFlowNode {
+  return node.type === 'rahNode';
+}
+
+/**
+ * Rebuild the group halo nodes around the current node positions. Halos come first in
+ * the array and sit at zIndex -1 so they render behind the graph.
+ */
+function withGroupHalos(nodes: MapFlowNode[], overlay: MapOverlay): MapFlowNode[] {
+  const { groups, bands, ticks } = overlay;
+  const rahNodes = nodes.filter(isRahNode);
+  if (groups.length === 0) return [...ticks, ...rahNodes];
+
+  const byId = new Map(rahNodes.map((node) => [node.id, node]));
+  const halos: GroupFlowNode[] = [];
+  for (const group of groups) {
+    const rects = group.memberIds.flatMap((id) => {
+      const node = byId.get(id);
+      return node
+        ? [{
+          x: node.position.x,
+          y: node.position.y,
+          width: node.measured?.width ?? NODE_BOX.width,
+          height: node.measured?.height ?? NODE_BOX.height,
+        }]
+        : [];
+    });
+    const hull = bands ? groupBand(rects) : groupHull(rects);
+    if (!hull) continue;
+    halos.push({
+      id: group.id,
+      type: 'rahGroup',
+      position: { x: hull.x, y: hull.y },
+      width: hull.width,
+      height: hull.height,
+      data: { label: group.label, index: group.index, memberCount: rects.length, path: hull.path },
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -1,
+    });
+  }
+  return [...ticks, ...halos, ...rahNodes];
+}
 const edgeTypes = { rahEdge: RahEdge };
 
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_RESULT_LIMIT = 8;
+
+const LAYOUT_CENTER_X = 640;
+const LAYOUT_CENTER_Y = 420;
+// Node positions are their top-left corner; pad camera bounds by the largest rendered
+// node size (map-styles.css caps .rah-map-node at 168px wide) so labels stay in view.
+const NODE_MAX_WIDTH = 168;
+const NODE_APPROX_HEIGHT = 36;
+// Low enough that the widest layout (Timeline, ~28px per note) still fits a narrow pane.
+const MIN_ZOOM = 0.03;
+// Below this pane width the layout switcher shows icons only (labels stay as tooltips).
+const NARROW_PANE_WIDTH = 900;
+// Moves under this many pixels count as a click (focus the node), not a drag.
+const NODE_DRAG_THRESHOLD = 4;
 
 function MapPaneInner({
   slot,
@@ -50,6 +160,27 @@ function MapPaneInner({
 }: MapPaneProps) {
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
+  const reducedMotion = usePrefersReducedMotion();
+  // Track the pane's width so the toolbar can compact itself in two-/three-pane layouts.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [narrowPane, setNarrowPane] = useState(false);
+  useEffect(() => {
+    const element = paneRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrowPane(entry.contentRect.width < NARROW_PANE_WIDTH);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // Labels show at the fitted (default) zoom and above; set after each camera fit.
+  const [compactBelowZoom, setCompactBelowZoom] = useState(0);
+  const rememberFittedZoom = useCallback(() => {
+    setCompactBelowZoom(reactFlowInstance.getZoom() * FIT_LABEL_MARGIN);
+  }, [reactFlowInstance]);
+  const [storedLayout, setOverviewLayout] = usePersistentState<OverviewLayout>(OVERVIEW_LAYOUT_KEY, DEFAULT_OVERVIEW_LAYOUT);
+  // Guard against stale or hand-edited storage values.
+  const overviewLayout: OverviewLayout = isOverviewLayout(storedLayout) ? storedLayout : DEFAULT_OVERVIEW_LAYOUT;
 
   const [baseNodes, setBaseNodes] = useState<DbNode[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<DbNode[]>([]);
@@ -65,7 +196,7 @@ function MapPaneInner({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode<RahNodeData>>([]);
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<MapFlowNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
 
   const allDbNodes = useMemo(() => {
@@ -120,6 +251,30 @@ function MapPaneInner({
 
   const hoveredDbNode = hoveredNodeId ? nodesById.get(hoveredNodeId) ?? null : null;
 
+  // Hovering a node highlights its neighbourhood: everything else is dimmed (applied as a
+  // class on the rendered copies, so the simulation's node state is untouched).
+  const hoverNeighbourhood = useMemo(() => {
+    if (hoveredNodeId === null) return null;
+    const ids = new Set<string>([String(hoveredNodeId)]);
+    adjacency.get(hoveredNodeId)?.forEach((id) => ids.add(String(id)));
+    return ids;
+  }, [adjacency, hoveredNodeId]);
+
+  const displayNodes = useMemo(() => {
+    if (!hoverNeighbourhood) return rfNodes;
+    return rfNodes.map((node) => (
+      isRahNode(node) && !hoverNeighbourhood.has(node.id) ? { ...node, className: 'rah-map-dimmed' } : node
+    ));
+  }, [hoverNeighbourhood, rfNodes]);
+
+  const displayEdges = useMemo(() => {
+    if (hoveredNodeId === null) return rfEdges;
+    const hovered = String(hoveredNodeId);
+    return rfEdges.map((edge) => (
+      edge.source === hovered || edge.target === hovered ? edge : { ...edge, className: 'rah-map-dimmed' }
+    ));
+  }, [hoveredNodeId, rfEdges]);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -151,30 +306,135 @@ function MapPaneInner({
     void fetchData();
   }, []);
 
-  useEffect(() => {
-    const centerX = 640;
-    const centerY = 420;
-    const nodeIdSet = new Set(visibleNodes.map((node) => String(node.id)));
+  // Communities (groups of densely linked nodes) are detected on the overview set, so a
+  // node keeps its group colour when the view switches to focused mode.
+  const groups = useMemo(() => {
+    const ids = baseNodes.map((node) => String(node.id));
+    const links = dbEdges.map((edge): [string, string] => [String(edge.from_node_id), String(edge.to_node_id)]);
+    const byId = new Map(baseNodes.map((node) => [String(node.id), node]));
+    return describeGroups(detectCommunities(ids, links), byId, degreeMap);
+  }, [baseNodes, dbEdges, degreeMap]);
 
-    setRfNodes(
-      toRFNodes({
-        nodes: visibleNodes,
-        viewMode,
-        degreeMap,
-        adjacency,
-        focusedGraph,
-        centerX,
-        centerY,
-      }),
+  // Outlines are drawn in the overview only (and only for layouts that use them); the
+  // focused view keeps its hop rings.
+  const haloGroups = useMemo(
+    () => (viewMode === 'overview' && OUTLINED_LAYOUTS.has(overviewLayout)
+      ? withUngroupedAsUnlinked(groups, visibleNodes)
+        // Unlinked notes are not a community, so they get no outline.
+        .filter((group) => group.memberIds.length >= MIN_HALO_MEMBERS && group.index !== UNLINKED)
+      : []),
+    [groups, overviewLayout, viewMode, visibleNodes],
+  );
+  // Timeline date axis (ticks with guide lines through the lanes).
+  const timelineTicks = useMemo((): TickFlowNode[] => {
+    if (viewMode !== 'overview' || overviewLayout !== 'timeline') return [];
+    const timeline = computeTimelineLayout(
+      withUngroupedAsUnlinked(groups, visibleNodes),
+      createdAtTimes(visibleNodes),
+      LAYOUT_CENTER_X,
+      LAYOUT_CENTER_Y,
     );
-    setRfEdges(
-      toRFEdges({
-        dbEdges,
-        nodeIds: nodeIdSet,
-        focusedGraph,
+    const axisGap = 48;
+    return timeline.ticks.map((tick, i) => ({
+      id: `tick-${i}`,
+      type: 'rahTick' as const,
+      position: { x: tick.x, y: timeline.top - axisGap },
+      data: { label: tick.label, lineHeight: timeline.height + axisGap - 20 },
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -2,
+    }));
+  }, [groups, overviewLayout, viewMode, visibleNodes]);
+
+  const overlay = useMemo((): MapOverlay => ({
+    groups: haloGroups,
+    bands: overviewLayout === 'timeline',
+    ticks: timelineTicks,
+  }), [haloGroups, overviewLayout, timelineTicks]);
+  const overlayRef = useRef<MapOverlay>(EMPTY_OVERLAY);
+  const dragOverridesRef = useRef(new Map<string, Point>());
+  const viewKeyRef = useRef('');
+
+  // Target layout: where each node should come to rest for the current view.
+  const layoutNodes = useMemo(
+    () => toRFNodes({
+      nodes: visibleNodes,
+      viewMode,
+      degreeMap,
+      adjacency,
+      focusedGraph,
+      groups,
+      overviewLayout,
+      centerX: LAYOUT_CENTER_X,
+      centerY: LAYOUT_CENTER_Y,
+    }),
+    [adjacency, degreeMap, focusedGraph, groups, overviewLayout, viewMode, visibleNodes],
+  );
+
+  // Group-coloured links in the overview layouts that show communities (not Original,
+  // which predates groups, and not the focused view, which highlights hops instead).
+  const edgeGroupOf = useMemo(() => {
+    if (viewMode !== 'overview' || overviewLayout === 'original') return undefined;
+    const map = new Map<string, number>();
+    groups.forEach((group) => group.memberIds.forEach((id) => map.set(id, group.index)));
+    return map;
+  }, [groups, overviewLayout, viewMode]);
+
+  const layoutEdges = useMemo(
+    () => toRFEdges({
+      dbEdges,
+      nodeIds: new Set(visibleNodes.map((node) => String(node.id))),
+      focusedGraph,
+      groupOf: edgeGroupOf,
+    }),
+    [dbEdges, edgeGroupOf, focusedGraph, visibleNodes],
+  );
+
+  // The spring simulation animates rendered positions toward the target layout. Only
+  // positions are patched per frame; other node fields (React Flow's measured size,
+  // selection) are preserved.
+  const applyAnimatedPositions = useCallback((positions: Map<string, Point>) => {
+    setRfNodes((prev) => withGroupHalos(
+      prev.map((node) => {
+        if (!isRahNode(node)) return node;
+        const position = positions.get(node.id);
+        if (!position || (position.x === node.position.x && position.y === node.position.y)) return node;
+        return { ...node, position };
       }),
-    );
-  }, [adjacency, dbEdges, degreeMap, focusedGraph, setRfEdges, setRfNodes, viewMode, visibleNodes]);
+      overlayRef.current,
+    ));
+  }, [setRfNodes]);
+
+  const springLayout = useSpringLayout({ onFrame: applyAnimatedPositions, reducedMotion });
+
+  useEffect(() => {
+    // Positions the user dragged nodes to survive data updates (e.g. a note being edited)
+    // and are dropped only when the view itself changes: layout, overview/focused, or
+    // which node is focused.
+    const viewKey = `${viewMode}:${overviewLayout}:${focusedGraph?.selectedNodeId ?? ''}`;
+    if (viewKeyRef.current !== viewKey) {
+      dragOverridesRef.current.clear();
+      viewKeyRef.current = viewKey;
+    }
+    const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
+    applyDragOverrides(targets, dragOverridesRef.current);
+    const links = layoutEdges.map((edge): [string, string] => [edge.source, edge.target]);
+    overlayRef.current = overlay;
+    const start = springLayout.retarget(targets, links);
+
+    setRfNodes((prev) => {
+      const previousById = new Map(prev.filter(isRahNode).map((node) => [node.id, node]));
+      const nextNodes: RahFlowNode[] = layoutNodes.map((node) => ({
+        ...previousById.get(node.id),
+        ...node,
+        type: 'rahNode' as const,
+        position: start.get(node.id) ?? node.position,
+      }));
+      return withGroupHalos(nextNodes, overlay);
+    });
+    setRfEdges(layoutEdges);
+  }, [focusedGraph, layoutEdges, layoutNodes, overlay, overviewLayout, setRfEdges, setRfNodes, springLayout, viewMode]);
 
   useEffect(() => {
     if (!focusedGraph) {
@@ -272,26 +532,51 @@ function MapPaneInner({
     return () => window.clearTimeout(timeout);
   }, [searchQuery]);
 
+  // Camera framing. Fits the TARGET layout with any dragged positions applied, not the
+  // rendered positions (still mid-animation after a view change), and sizes every node for
+  // its full label, so labels that expand after the fit still fit. Returns false when
+  // there is nothing to frame yet (e.g. the focused note has not loaded).
+  const fitCamera = useCallback((fitAll = false): boolean => {
+    const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
+    dragOverridesRef.current.forEach((position, id) => {
+      if (targets.has(id)) targets.set(id, position);
+    });
+    const plan = planCamera({
+      targets,
+      focusId: focusedGraph && selectedNodeId ? String(selectedNodeId) : null,
+      fitAll,
+      outlineGroups: haloGroups,
+      ticks: timelineTicks.map((tick) => tick.position),
+      nodeSize: { width: NODE_MAX_WIDTH, height: NODE_APPROX_HEIGHT },
+    });
+    if (!plan) return false;
+
+    const duration = reducedMotion ? 0 : 420;
+    if (plan.kind === 'center') {
+      void reactFlowInstance.setCenter(plan.x, plan.y, { duration, zoom: 1.02 }).then(rememberFittedZoom);
+    } else {
+      void reactFlowInstance.fitBounds(
+        { x: plan.x, y: plan.y, width: plan.width, height: plan.height },
+        { padding: 0.18, duration },
+      ).then(rememberFittedZoom);
+    }
+    return true;
+  }, [focusedGraph, haloGroups, layoutNodes, reactFlowInstance, reducedMotion, rememberFittedZoom, selectedNodeId, timelineTicks]);
+
+  // Refit automatically only when the view changes (layout, overview/focused, focused
+  // note) or on first load, not on every data update: live updates and note edits should
+  // neither move the camera nor frame away from nodes the user dragged.
+  const fittedViewKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (loading || rfNodes.length === 0) return;
+    if (loading || layoutNodes.length === 0) return;
+    const viewKey = `${viewMode}:${overviewLayout}:${selectedNodeId ?? ''}`;
+    if (fittedViewKeyRef.current === viewKey) return;
 
     const timeout = window.setTimeout(() => {
-      if (focusedGraph && selectedNodeId) {
-        const selectedNode = rfNodes.find((node) => node.id === String(selectedNodeId));
-        if (selectedNode) {
-          reactFlowInstance.setCenter(selectedNode.position.x, selectedNode.position.y, {
-            duration: 280,
-            zoom: 1.02,
-          });
-        }
-        return;
-      }
-
-      reactFlowInstance.fitView({ padding: 0.22, duration: 280 });
+      if (fitCamera()) fittedViewKeyRef.current = viewKey;
     }, 80);
-
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, loading, reactFlowInstance, rfNodes, selectedNodeId]);
+  }, [fitCamera, layoutNodes, loading, overviewLayout, selectedNodeId, viewMode]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -304,6 +589,19 @@ function MapPaneInner({
           const payload = JSON.parse(event.data);
 
           switch (payload.type) {
+            case 'NODE_CREATED': {
+              // Quick-add broadcasts a placeholder without an id; the real node follows.
+              const node = payload.data?.node as DbNode | undefined;
+              if (!node?.id) break;
+              // The overview holds the NODE_LIMIT best-connected notes; a brand-new note
+              // has no links yet, so it only joins while there is room.
+              setBaseNodes((prev) => (
+                prev.some((existing) => existing.id === node.id) || prev.length >= NODE_LIMIT
+                  ? prev
+                  : [...prev, node]
+              ));
+              break;
+            }
             case 'NODE_UPDATED': {
               const node = payload.data?.node as DbNode | undefined;
               if (!node?.id) break;
@@ -389,7 +687,8 @@ function MapPaneInner({
     onNodeClick?.(nodeId);
   }, [nodesById, onNodeClick]);
 
-  const handleNodeClickHandler: NodeMouseHandler<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeClickHandler: NodeMouseHandler<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     const nodeId = parseInt(node.id, 10);
     if (!Number.isNaN(nodeId)) {
       setSelectedNodeId(nodeId);
@@ -397,28 +696,58 @@ function MapPaneInner({
     }
   }, [onNodeClick]);
 
-  const handleNodeMouseEnter: NodeMouseHandler<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeMouseEnter: NodeMouseHandler<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     const nodeId = parseInt(node.id, 10);
     if (!Number.isNaN(nodeId)) {
       setHoveredNodeId(nodeId);
     }
   }, []);
 
-  const handleNodeMouseLeave: NodeMouseHandler<RFNode<RahNodeData>> = useCallback(() => {
+  const handleNodeMouseLeave: NodeMouseHandler<MapFlowNode> = useCallback(() => {
     setHoveredNodeId(null);
   }, []);
 
+  // Dragging holds the node under the pointer; linked neighbours follow on their springs.
+  // On release the node keeps its new place and the neighbours settle back.
+  // React Flow drags every selected node together and passes them all in `nodes`.
+  const handleNodeDrag: OnNodeDrag<MapFlowNode> = useCallback((_event, node, nodes) => {
+    (nodes.length > 0 ? nodes : [node]).filter(isRahNode).forEach((dragged) => {
+      springLayout.pin(dragged.id, dragged.position);
+    });
+  }, [springLayout]);
+
+  const handleNodeDragStop: OnNodeDrag<MapFlowNode> = useCallback((_event, node, nodes) => {
+    (nodes.length > 0 ? nodes : [node]).filter(isRahNode).forEach((dragged) => {
+      springLayout.pin(dragged.id, dragged.position);
+      springLayout.release(dragged.id);
+      dragOverridesRef.current.set(dragged.id, { ...dragged.position });
+    });
+  }, [springLayout]);
+
+  // Manual Fit frames everything visible, in the overview and the focused view alike
+  // (automatic focus changes centre the focused note instead).
   const fitVisibleNodes = useCallback(() => {
-    reactFlowInstance.fitView({ padding: 0.2, duration: 260 });
-  }, [reactFlowInstance]);
+    fitCamera(true);
+  }, [fitCamera]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>
+    <div ref={paneRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>
       <PaneHeader slot={slot} onCollapse={onCollapse} onSwapPanes={onSwapPanes} tabBar={tabBar}>
         <div style={headerTools}>
           <span style={viewMode === 'focused' ? focusedBadge : overviewBadge}>
             {viewMode === 'focused' ? 'Focused' : 'Overview'}
           </span>
+
+          {viewMode === 'overview' ? (
+            <SegmentedControl
+              ariaLabel="Map layout"
+              options={LAYOUT_OPTIONS}
+              value={overviewLayout}
+              onChange={setOverviewLayout}
+              iconOnly={narrowPane}
+            />
+          ) : null}
 
           <div style={searchShell}>
             <input
@@ -468,9 +797,10 @@ function MapPaneInner({
           <div style={emptyState}>No nodes to display</div>
         ) : (
           <div className="rah-map-wrapper" style={{ width: '100%', height: '100%' }}>
+            <CompactBelowZoomContext.Provider value={compactBelowZoom}>
             <ReactFlow
-              nodes={rfNodes}
-              edges={rfEdges}
+              nodes={displayNodes}
+              edges={displayEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={handleNodeClickHandler}
@@ -478,9 +808,13 @@ function MapPaneInner({
               onNodeMouseLeave={handleNodeMouseLeave}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              minZoom={0.12}
+              minZoom={MIN_ZOOM}
               maxZoom={2.5}
-              nodesDraggable={false}
+              onNodeDragStart={handleNodeDrag}
+              onNodeDrag={handleNodeDrag}
+              onNodeDragStop={handleNodeDragStop}
+              nodesDraggable
+              nodeDragThreshold={NODE_DRAG_THRESHOLD}
               nodesConnectable={false}
               elementsSelectable
               selectNodesOnDrag={false}
@@ -493,6 +827,7 @@ function MapPaneInner({
                 style={{ background: 'var(--rah-bg-panel)', border: '1px solid var(--rah-border)', borderRadius: 6 }}
                 maskColor={theme === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.7)'}
                 nodeColor={(node) => {
+                  if (node.type === 'rahGroup' || node.type === 'rahTick') return 'transparent';
                   const data = node.data as RahNodeData | undefined;
                   switch (data?.role) {
                     case 'selected':
@@ -509,6 +844,7 @@ function MapPaneInner({
                 zoomable
               />
             </ReactFlow>
+            </CompactBelowZoomContext.Provider>
 
             <div style={floatingActions}>
               <button type="button" onClick={fitVisibleNodes} style={floatingButton} title="Fit visible nodes">
@@ -558,7 +894,9 @@ const emptyState: CSSProperties = {
 const headerTools: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  flexWrap: 'wrap',
   gap: 10,
+  minWidth: 0,
 };
 
 const overviewBadge: CSSProperties = {
@@ -580,7 +918,8 @@ const focusedBadge: CSSProperties = {
 
 const searchShell: CSSProperties = {
   position: 'relative',
-  width: 220,
+  flex: '0 1 220px',
+  minWidth: 120,
 };
 
 const searchInput: CSSProperties = {

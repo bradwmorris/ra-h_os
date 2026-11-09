@@ -1,15 +1,28 @@
 "use client";
 
-import { memo } from 'react';
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { RahNodeData } from './utils';
+import { memo, useCallback, useContext } from 'react';
+import { Handle, Position, useStore, type NodeProps, type Node, type ReactFlowState } from '@xyflow/react';
+import { groupColorVar, type RahNodeData } from './utils';
+import { CompactBelowZoomContext } from './labelZoom';
 import { getNodeIcon } from '@/utils/nodeIcons';
 
 type RahNodeType = Node<RahNodeData, 'rahNode'>;
 
+// Label level-of-detail: when zoomed out past the fitted view, less prominent overview
+// nodes show only their icon so the hubs' labels stay readable. Hubs always keep labels.
+const HUB_PROMINENCE = 0.35;
+
 function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
-  const { label, dbNode, role, prominence } = data;
+  const { label, dbNode, role, prominence, group } = data;
   const isSelected = selected || role === 'selected';
+  const compactBelowZoom = useContext(CompactBelowZoomContext);
+  // Boolean selector: nodes re-render only when the threshold is crossed.
+  const zoomedOutSelector = useCallback(
+    (state: ReactFlowState) => state.transform[2] < compactBelowZoom,
+    [compactBelowZoom],
+  );
+  const zoomedOut = useStore(zoomedOutSelector);
+  const compact = zoomedOut && role === 'overview' && !isSelected && prominence < HUB_PROMINENCE;
   const sizeScale = role === 'selected'
     ? 1.08
     : role === 'first-hop'
@@ -27,15 +40,23 @@ function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
         role === 'overview' && 'rah-map-node--overview',
         isSelected && 'rah-map-node--active',
         strongNode && 'rah-map-node--strong',
+        group !== null && 'rah-map-node--grouped',
+        compact && 'rah-map-node--compact',
       ].filter(Boolean).join(' ')}
-      style={{ transform: `scale(${sizeScale})` }}
+      title={compact ? label : undefined}
+      style={{
+        transform: `scale(${sizeScale})`,
+        ...(group !== null ? { ['--rah-map-group-color' as string]: groupColorVar(group) } : {}),
+      }}
     >
       <Handle type="target" position={Position.Top} className="rah-map-handle rah-map-handle--hidden" isConnectable={false} />
       <div className="rah-map-node__title">
         <span className="rah-map-node__icon">
           {getNodeIcon(dbNode, 14)}
         </span>
-        {label.length > 26 ? label.slice(0, 24) + '\u2026' : label}
+        <span className="rah-map-node__label">
+          {label.length > 26 ? label.slice(0, 24) + '\u2026' : label}
+        </span>
       </div>
       <Handle type="source" position={Position.Bottom} className="rah-map-handle rah-map-handle--hidden" isConnectable={false} />
     </div>
