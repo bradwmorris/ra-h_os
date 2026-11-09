@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import {
   ReactFlow,
   Background,
@@ -20,24 +20,82 @@ import type { Edge as DbEdge, Node as DbNode } from '@/types/database';
 import PaneHeader from './PaneHeader';
 import type { MapPaneProps } from './types';
 import { RahNode } from './map/RahNode';
+import { RahGroup } from './map/RahGroup';
 import { RahEdge } from './map/RahEdge';
 import {
   buildAdjacency,
   buildDegreeMap,
   buildFocusedGraph,
+  describeGroups,
+  groupHaloBounds,
   toRFNodes,
   toRFEdges,
+  withUngroupedAsUnlinked,
+  NODE_BOX,
   NODE_LIMIT,
+  type MapGroup,
   type MapViewMode,
+  type RahGroupData,
   type RahNodeData,
 } from './map/utils';
+import { detectCommunities, UNLINKED } from './map/communities';
 import { useSpringLayout } from './map/useSpringLayout';
 import type { Point } from './map/springLayout';
 import { useTheme } from '@/hooks/useTheme';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import './map/map-styles.css';
 
-const nodeTypes = { rahNode: RahNode };
+type RahFlowNode = RFNode<RahNodeData, 'rahNode'>;
+type GroupFlowNode = RFNode<RahGroupData, 'rahGroup'>;
+type MapFlowNode = RahFlowNode | GroupFlowNode;
+
+const nodeTypes = { rahNode: RahNode, rahGroup: RahGroup };
+// Communities smaller than this get a colour accent but no halo, to avoid clutter.
+const MIN_HALO_MEMBERS = 3;
+
+function isRahNode(node: MapFlowNode): node is RahFlowNode {
+  return node.type === 'rahNode';
+}
+
+/**
+ * Rebuild the group halo nodes around the current node positions. Halos come first in
+ * the array and sit at zIndex -1 so they render behind the graph.
+ */
+function withGroupHalos(nodes: MapFlowNode[], groups: MapGroup[]): MapFlowNode[] {
+  const rahNodes = nodes.filter(isRahNode);
+  if (groups.length === 0) return rahNodes;
+
+  const byId = new Map(rahNodes.map((node) => [node.id, node]));
+  const halos: GroupFlowNode[] = [];
+  for (const group of groups) {
+    const rects = group.memberIds.flatMap((id) => {
+      const node = byId.get(id);
+      return node
+        ? [{
+          x: node.position.x,
+          y: node.position.y,
+          width: node.measured?.width ?? NODE_BOX.width,
+          height: node.measured?.height ?? NODE_BOX.height,
+        }]
+        : [];
+    });
+    const bounds = groupHaloBounds(rects);
+    if (!bounds) continue;
+    halos.push({
+      id: group.id,
+      type: 'rahGroup',
+      position: { x: bounds.x, y: bounds.y },
+      width: bounds.width,
+      height: bounds.height,
+      data: { label: group.label, index: group.index, memberCount: rects.length },
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -1,
+    });
+  }
+  return [...halos, ...rahNodes];
+}
 const edgeTypes = { rahEdge: RahEdge };
 
 const SEARCH_MIN_CHARS = 2;
@@ -79,7 +137,7 @@ function MapPaneInner({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode<RahNodeData>>([]);
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<MapFlowNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
 
   const allDbNodes = useMemo(() => {
@@ -165,6 +223,25 @@ function MapPaneInner({
     void fetchData();
   }, []);
 
+  // Communities (groups of densely linked nodes) are detected on the overview set, so a
+  // node keeps its group colour when the view switches to focused mode.
+  const groups = useMemo(() => {
+    const ids = baseNodes.map((node) => String(node.id));
+    const links = dbEdges.map((edge): [string, string] => [String(edge.from_node_id), String(edge.to_node_id)]);
+    const byId = new Map(baseNodes.map((node) => [String(node.id), node]));
+    return describeGroups(detectCommunities(ids, links), byId, degreeMap);
+  }, [baseNodes, dbEdges, degreeMap]);
+
+  // Halos are drawn in the overview only; the focused view keeps its hop rings.
+  const haloGroups = useMemo(
+    () => (viewMode === 'overview'
+      ? withUngroupedAsUnlinked(groups, visibleNodes)
+        .filter((group) => group.memberIds.length >= MIN_HALO_MEMBERS || group.index === UNLINKED)
+      : []),
+    [groups, viewMode, visibleNodes],
+  );
+  const haloGroupsRef = useRef<MapGroup[]>([]);
+
   // Target layout: where each node should come to rest for the current view.
   const layoutNodes = useMemo(
     () => toRFNodes({
@@ -173,10 +250,11 @@ function MapPaneInner({
       degreeMap,
       adjacency,
       focusedGraph,
+      groups,
       centerX: LAYOUT_CENTER_X,
       centerY: LAYOUT_CENTER_Y,
     }),
-    [adjacency, degreeMap, focusedGraph, viewMode, visibleNodes],
+    [adjacency, degreeMap, focusedGraph, groups, viewMode, visibleNodes],
   );
 
   const layoutEdges = useMemo(
@@ -192,11 +270,15 @@ function MapPaneInner({
   // positions are patched per frame; other node fields (React Flow's measured size,
   // selection) are preserved.
   const applyAnimatedPositions = useCallback((positions: Map<string, Point>) => {
-    setRfNodes((prev) => prev.map((node) => {
-      const position = positions.get(node.id);
-      if (!position || (position.x === node.position.x && position.y === node.position.y)) return node;
-      return { ...node, position };
-    }));
+    setRfNodes((prev) => withGroupHalos(
+      prev.map((node) => {
+        if (!isRahNode(node)) return node;
+        const position = positions.get(node.id);
+        if (!position || (position.x === node.position.x && position.y === node.position.y)) return node;
+        return { ...node, position };
+      }),
+      haloGroupsRef.current,
+    ));
   }, [setRfNodes]);
 
   const springLayout = useSpringLayout({ onFrame: applyAnimatedPositions, reducedMotion });
@@ -204,18 +286,21 @@ function MapPaneInner({
   useEffect(() => {
     const targets = new Map<string, Point>(layoutNodes.map((node) => [node.id, node.position]));
     const links = layoutEdges.map((edge): [string, string] => [edge.source, edge.target]);
+    haloGroupsRef.current = haloGroups;
     const start = springLayout.retarget(targets, links);
 
     setRfNodes((prev) => {
-      const previousById = new Map(prev.map((node) => [node.id, node]));
-      return layoutNodes.map((node) => ({
+      const previousById = new Map(prev.filter(isRahNode).map((node) => [node.id, node]));
+      const nextNodes: RahFlowNode[] = layoutNodes.map((node) => ({
         ...previousById.get(node.id),
         ...node,
+        type: 'rahNode' as const,
         position: start.get(node.id) ?? node.position,
       }));
+      return withGroupHalos(nextNodes, haloGroups);
     });
     setRfEdges(layoutEdges);
-  }, [layoutEdges, layoutNodes, setRfEdges, setRfNodes, springLayout]);
+  }, [haloGroups, layoutEdges, layoutNodes, setRfEdges, setRfNodes, springLayout]);
 
   useEffect(() => {
     if (!focusedGraph) {
@@ -334,11 +419,21 @@ function MapPaneInner({
       let minY = Infinity;
       let maxX = -Infinity;
       let maxY = -Infinity;
-      layoutNodes.forEach(({ position }) => {
-        minX = Math.min(minX, position.x);
-        minY = Math.min(minY, position.y);
-        maxX = Math.max(maxX, position.x + NODE_MAX_WIDTH);
-        maxY = Math.max(maxY, position.y + NODE_APPROX_HEIGHT);
+      const include = (x: number, y: number, width: number, height: number) => {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + width);
+        maxY = Math.max(maxY, y + height);
+      };
+      layoutNodes.forEach(({ position }) => include(position.x, position.y, NODE_MAX_WIDTH, NODE_APPROX_HEIGHT));
+      // Halos extend beyond their outermost nodes; keep them (and their labels) in view.
+      const positionById = new Map(layoutNodes.map((node) => [node.id, node.position]));
+      haloGroups.forEach((group) => {
+        const halo = groupHaloBounds(group.memberIds.flatMap((id) => {
+          const position = positionById.get(id);
+          return position ? [{ ...position, ...NODE_BOX }] : [];
+        }));
+        if (halo) include(halo.x, halo.y - NODE_APPROX_HEIGHT / 2, halo.width, halo.height + NODE_APPROX_HEIGHT / 2);
       });
       reactFlowInstance.fitBounds(
         { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
@@ -347,7 +442,7 @@ function MapPaneInner({
     }, 80);
 
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId]);
+  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -445,7 +540,8 @@ function MapPaneInner({
     onNodeClick?.(nodeId);
   }, [nodesById, onNodeClick]);
 
-  const handleNodeClickHandler: NodeMouseHandler<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeClickHandler: NodeMouseHandler<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     const nodeId = parseInt(node.id, 10);
     if (!Number.isNaN(nodeId)) {
       setSelectedNodeId(nodeId);
@@ -453,24 +549,27 @@ function MapPaneInner({
     }
   }, [onNodeClick]);
 
-  const handleNodeMouseEnter: NodeMouseHandler<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeMouseEnter: NodeMouseHandler<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     const nodeId = parseInt(node.id, 10);
     if (!Number.isNaN(nodeId)) {
       setHoveredNodeId(nodeId);
     }
   }, []);
 
-  const handleNodeMouseLeave: NodeMouseHandler<RFNode<RahNodeData>> = useCallback(() => {
+  const handleNodeMouseLeave: NodeMouseHandler<MapFlowNode> = useCallback(() => {
     setHoveredNodeId(null);
   }, []);
 
   // Dragging holds the node under the pointer; linked neighbours follow on their springs.
   // On release the node keeps its new place and the neighbours settle back.
-  const handleNodeDrag: OnNodeDrag<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeDrag: OnNodeDrag<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     springLayout.pin(node.id, node.position);
   }, [springLayout]);
 
-  const handleNodeDragStop: OnNodeDrag<RFNode<RahNodeData>> = useCallback((_event, node) => {
+  const handleNodeDragStop: OnNodeDrag<MapFlowNode> = useCallback((_event, node) => {
+    if (!isRahNode(node)) return;
     springLayout.pin(node.id, node.position);
     springLayout.release(node.id);
   }, [springLayout]);
@@ -564,6 +663,7 @@ function MapPaneInner({
                 style={{ background: 'var(--rah-bg-panel)', border: '1px solid var(--rah-border)', borderRadius: 6 }}
                 maskColor={theme === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.7)'}
                 nodeColor={(node) => {
+                  if (node.type === 'rahGroup') return 'transparent';
                   const data = node.data as RahNodeData | undefined;
                   switch (data?.role) {
                     case 'selected':

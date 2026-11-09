@@ -122,3 +122,83 @@
   border: 1px solid var(--rah-border);
   border-radius: 6px;
 }
+
+/* Community groups: palette tokens (dark default, light override). Chosen to stay
+   distinguishable from each other and readable on both themes. */
+.rah-map-wrapper {
+  --rah-map-group-0: #34d399;
+  --rah-map-group-1: #60a5fa;
+  --rah-map-group-2: #f472b6;
+  --rah-map-group-3: #fbbf24;
+  --rah-map-group-4: #a78bfa;
+  --rah-map-group-5: #22d3ee;
+  --rah-map-group-6: #fb923c;
+  --rah-map-group-7: #a3e635;
+  --rah-map-group-unlinked: #94a3b8;
+  --rah-map-group-fill-alpha: 7%;
+  --rah-map-group-border-alpha: 34%;
+}
+
+html[data-theme="light"] .rah-map-wrapper {
+  --rah-map-group-0: #059669;
+  --rah-map-group-1: #2563eb;
+  --rah-map-group-2: #db2777;
+  --rah-map-group-3: #d97706;
+  --rah-map-group-4: #7c3aed;
+  --rah-map-group-5: #0891b2;
+  --rah-map-group-6: #ea580c;
+  --rah-map-group-7: #65a30d;
+  --rah-map-group-unlinked: #64748b;
+  --rah-map-group-fill-alpha: 6%;
+  --rah-map-group-border-alpha: 30%;
+}
+
+/* Group halos sit behind nodes and never take pointer events. */
+.rah-map-wrapper .react-flow__node-rahGroup {
+  pointer-events: none !important;
+}
+
+.rah-map-group {
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-fill-alpha), transparent);
+  border: 1.5px solid color-mix(in srgb, var(--rah-map-group-color) var(--rah-map-group-border-alpha), transparent);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.rah-map-group--unlinked {
+  border-style: dashed;
+}
+
+.rah-map-group__label {
+  margin-top: -11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--rah-bg-base);
+  border: 1px solid color-mix(in srgb, var(--rah-map-group-color) 45%, transparent);
+  color: var(--rah-map-group-color);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.rah-map-group__count {
+  color: var(--rah-text-muted);
+  font-weight: 500;
+}
+
+/* Grouped nodes carry their community colour as a left accent. */
+.rah-map-node--grouped {
+  border-left: 3px solid var(--rah-map-group-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rah-map-node {
+    transition: none;
+  }
+}

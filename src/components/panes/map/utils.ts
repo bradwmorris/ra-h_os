@@ -1,5 +1,6 @@
 import type { Node as DbNode, Edge as DbEdge } from '@/types/database';
 import type { Node as RFNode, Edge as RFEdge } from '@xyflow/react';
+import { UNLINKED, type CommunityResult } from './communities';
 
 export type MapViewMode = 'overview' | 'focused';
 export type MapNodeRole = 'overview' | 'selected' | 'first-hop' | 'second-hop';
@@ -18,10 +19,21 @@ export interface RahNodeData {
   role: MapNodeRole;
   connectionCount: number;
   prominence: number;
+  /** Community index for colouring (0 = largest), UNLINKED, or null when ungrouped. */
+  group: number | null;
+  [key: string]: unknown;
+}
+
+export interface RahGroupData {
+  label: string;
+  /** Community index (0 = largest) or UNLINKED. */
+  index: number;
+  memberCount: number;
   [key: string]: unknown;
 }
 
 export const NODE_LIMIT = 200;
+export const NODE_Z_INDEX = 20;
 export const FIRST_HOP_LIMIT = 10;
 export const SECOND_HOP_LIMIT = 18;
 
@@ -99,135 +111,136 @@ export function buildFocusedGraph(
   };
 }
 
-function buildOverviewLayout(
-  nodes: DbNode[],
-  adjacency: Map<number, Set<number>>,
-  degreeMap: Map<number, number>,
-  centerX: number,
-  centerY: number,
-): Map<string, Point> {
-  const positions = new Map<string, Point>();
-  const sortNodesByWeight = (left: DbNode, right: DbNode) => {
-    const degreeDiff = (degreeMap.get(right.id) ?? right.edge_count ?? 0) - (degreeMap.get(left.id) ?? left.edge_count ?? 0);
-    return degreeDiff !== 0 ? degreeDiff : left.id - right.id;
-  };
+// --- Grouped overview layout ---------------------------------------------------
+// Each community gets its own region: its best-connected node at the centre and the
+// rest on a sunflower (phyllotaxis) spiral, which spaces any member count evenly.
+// Regions are packed around the largest one, closest-first, without overlapping.
 
-  const sortedNodes = [...nodes].sort(sortNodesByWeight);
-  if (sortedNodes.length === 0) {
-    return positions;
-  }
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const SUNFLOWER_SPACING = 58;
+// Nodes are much wider than tall, so spread the spiral horizontally.
+const SUNFLOWER_X_STRETCH = 1.75;
+// Halo margin around a group's outermost nodes, and the clear gap kept between halos
+// (room for the halo labels).
+const HALO_PADDING = 16;
+const GROUP_GAP = 40;
+// Rendered node box used to centre a node on its layout point (positions are top-left).
+export const NODE_BOX = { width: 120, height: 32 };
 
-  const maxDegree = Math.max(...sortedNodes.map((node) => degreeMap.get(node.id) ?? node.edge_count ?? 0), 1);
-  const minRadius = 24;
-  const maxRadius = Math.max(280, Math.min(520, 140 + sortedNodes.length * 2.2));
-  const nodeIds = sortedNodes.map((node) => node.id);
-  const state = new Map<number, { x: number; y: number; vx: number; vy: number; targetRadius: number; mass: number }>();
+export interface MapGroup {
+  /** Stable React Flow id for the group's halo node. */
+  id: string;
+  /** Community index (0 = largest) or UNLINKED. */
+  index: number;
+  memberIds: string[];
+  label: string;
+}
 
-  sortedNodes.forEach((node, index) => {
-    const degree = degreeMap.get(node.id) ?? node.edge_count ?? 0;
-    const centrality = degree / maxDegree;
-    const targetRadius = minRadius + (1 - centrality) * (maxRadius - minRadius);
-    const angle = (index / Math.max(sortedNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
-
-    state.set(node.id, {
-      x: centerX + Math.cos(angle) * targetRadius,
-      y: centerY + Math.sin(angle) * targetRadius,
-      vx: 0,
-      vy: 0,
-      targetRadius,
-      mass: 1 + centrality * 1.8,
-    });
-  });
-
-  const iterations = 140;
-  for (let step = 0; step < iterations; step += 1) {
-    const alpha = 1 - step / iterations;
-
-    for (let i = 0; i < nodeIds.length; i += 1) {
-      const leftId = nodeIds[i];
-      const left = state.get(leftId);
-      if (!left) continue;
-
-      for (let j = i + 1; j < nodeIds.length; j += 1) {
-        const rightId = nodeIds[j];
-        const right = state.get(rightId);
-        if (!right) continue;
-
-        const dx = right.x - left.x;
-        const dy = right.y - left.y;
-        const distanceSquared = dx * dx + dy * dy + 0.01;
-        const distance = Math.sqrt(distanceSquared);
-        const repulsion = (2200 * alpha) / distanceSquared;
-        const fx = (dx / distance) * repulsion;
-        const fy = (dy / distance) * repulsion;
-
-        left.vx -= fx / left.mass;
-        left.vy -= fy / left.mass;
-        right.vx += fx / right.mass;
-        right.vy += fy / right.mass;
+function packGroupCentres(radii: number[]): Point[] {
+  const centres: Point[] = [];
+  radii.forEach((radius, i) => {
+    if (i === 0) {
+      centres.push({ x: 0, y: 0 });
+      return;
+    }
+    const fits = (candidate: Point) => centres.every((centre, j) => (
+      Math.hypot(candidate.x - centre.x, (candidate.y - centre.y) * SUNFLOWER_X_STRETCH)
+        >= radius + radii[j] + GROUP_GAP
+    ));
+    for (let distance = radius + radii[0]; ; distance += 24) {
+      // Try angles around the cluster, starting from a different side for each group
+      // so the arrangement does not drift to one side.
+      for (let step = 0; step < 36; step += 1) {
+        const angle = i * GOLDEN_ANGLE + (step / 36) * Math.PI * 2;
+        const candidate = { x: Math.cos(angle) * distance, y: (Math.sin(angle) * distance) / SUNFLOWER_X_STRETCH };
+        if (fits(candidate)) {
+          centres.push(candidate);
+          return;
+        }
       }
     }
+  });
+  return centres;
+}
 
-    sortedNodes.forEach((node) => {
-      const current = state.get(node.id);
-      if (!current) return;
-
-      for (const neighbourId of adjacency.get(node.id) ?? []) {
-        if (!state.has(neighbourId) || neighbourId <= node.id) continue;
-
-        const neighbour = state.get(neighbourId);
-        if (!neighbour) continue;
-
-        const dx = neighbour.x - current.x;
-        const dy = neighbour.y - current.y;
-        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-        const desired = 70 + Math.min(
-          Math.abs(current.targetRadius - neighbour.targetRadius) * 0.35 + 24,
-          150,
-        );
-        const pull = (distance - desired) * 0.0048 * alpha;
-        const fx = (dx / distance) * pull;
-        const fy = (dy / distance) * pull;
-
-        current.vx += fx;
-        current.vy += fy;
-        neighbour.vx -= fx;
-        neighbour.vy -= fy;
-      }
-    });
-
-    sortedNodes.forEach((node) => {
-      const current = state.get(node.id);
-      if (!current) return;
-
-      const dx = current.x - centerX;
-      const dy = current.y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-      const radialError = distance - current.targetRadius;
-      const radialPull = radialError * 0.0075;
-
-      current.vx -= (dx / distance) * radialPull;
-      current.vy -= (dy / distance) * radialPull;
-
-      if (current.targetRadius <= minRadius + 8) {
-        current.vx += (centerX - current.x) * 0.0035;
-        current.vy += (centerY - current.y) * 0.0035;
-      }
-
-      current.vx *= 0.86;
-      current.vy *= 0.86;
-      current.x += current.vx;
-      current.y += current.vy;
+export function describeGroups(
+  communities: CommunityResult,
+  nodesById: Map<string, DbNode>,
+  degreeMap: Map<number, number>,
+): MapGroup[] {
+  const byDegree = (a: string, b: string) => (
+    (degreeMap.get(Number(b)) ?? 0) - (degreeMap.get(Number(a)) ?? 0) || Number(a) - Number(b)
+  );
+  const groups: MapGroup[] = communities.communities.map((members, index) => {
+    const ordered = [...members].sort(byDegree);
+    const hub = nodesById.get(ordered[0]);
+    return { id: `group-${index}`, index, memberIds: ordered, label: hub?.title || 'Untitled' };
+  });
+  if (communities.unlinked.length > 0) {
+    groups.push({
+      id: 'group-unlinked',
+      index: UNLINKED,
+      memberIds: [...communities.unlinked].sort(byDegree),
+      label: 'Unlinked',
     });
   }
+  return groups;
+}
 
-  sortedNodes.forEach((node) => {
-    const current = state.get(node.id);
-    if (!current) return;
-    positions.set(String(node.id), { x: current.x, y: current.y });
+function buildGroupedOverviewLayout(groups: MapGroup[], centerX: number, centerY: number): Map<string, Point> {
+  const positions = new Map<string, Point>();
+  // Radius each group's halo will need, in horizontally-stretched units: the outermost
+  // sunflower node sits at SPACING * sqrt(n - 1), plus half a node and the halo padding.
+  const radii = groups.map((group) => (
+    SUNFLOWER_SPACING * SUNFLOWER_X_STRETCH * Math.sqrt(Math.max(group.memberIds.length - 1, 0))
+      + NODE_BOX.width / 2 + HALO_PADDING
+  ));
+  const centres = packGroupCentres(radii);
+
+  groups.forEach((group, groupIndex) => {
+    const centre = centres[groupIndex];
+    group.memberIds.forEach((id, i) => {
+      const r = SUNFLOWER_SPACING * Math.sqrt(i);
+      const angle = i * GOLDEN_ANGLE;
+      positions.set(id, {
+        x: centerX + centre.x + Math.cos(angle) * r * SUNFLOWER_X_STRETCH - NODE_BOX.width / 2,
+        y: centerY + centre.y + Math.sin(angle) * r - NODE_BOX.height / 2,
+      });
+    });
   });
-
   return positions;
+}
+
+/**
+ * Bounding box of an ellipse fitted to a group of node boxes, for drawing a group halo.
+ * `rects` are top-left positions plus sizes.
+ *
+ * The ellipse is shaped like the spread of the node centres and scaled just enough to
+ * contain every centre, then grown by half a node plus padding. For the round sunflower
+ * clusters this hugs the group far more tightly than circumscribing the bounding box.
+ */
+export function groupHaloBounds(
+  rects: Array<{ x: number; y: number; width: number; height: number }>,
+  padding = HALO_PADDING,
+): { x: number; y: number; width: number; height: number } | null {
+  if (rects.length === 0) return null;
+  const centres = rects.map((rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }));
+  const minX = Math.min(...centres.map((c) => c.x));
+  const maxX = Math.max(...centres.map((c) => c.x));
+  const minY = Math.min(...centres.map((c) => c.y));
+  const maxY = Math.max(...centres.map((c) => c.y));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  // Half-extents of the centres' spread (floored so 1-2 node groups still get a shape).
+  const ax = Math.max((maxX - minX) / 2, 1);
+  const ay = Math.max((maxY - minY) / 2, 1);
+  // Smallest scale k such that every centre satisfies (dx/(k*ax))^2 + (dy/(k*ay))^2 <= 1.
+  const k = Math.max(1, ...centres.map((c) => Math.hypot((c.x - cx) / ax, (c.y - cy) / ay)));
+  const maxHalfWidth = Math.max(...rects.map((rect) => rect.width / 2));
+  const maxHalfHeight = Math.max(...rects.map((rect) => rect.height / 2));
+  const rx = k * ax + maxHalfWidth + padding;
+  const ry = k * ay + maxHalfHeight + padding;
+  return { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 };
 }
 
 function buildFocusedLayout(
@@ -295,14 +308,24 @@ export function toRFNodes(params: {
   degreeMap: Map<number, number>;
   adjacency: Map<number, Set<number>>;
   focusedGraph: FocusedGraph | null;
+  /** Groups for the overview layout and node colouring (see describeGroups). */
+  groups: MapGroup[];
   centerX: number;
   centerY: number;
 }): RFNode<RahNodeData>[] {
-  const { nodes, viewMode, degreeMap, adjacency, focusedGraph, centerX, centerY } = params;
+  const { nodes, viewMode, degreeMap, adjacency, focusedGraph, groups, centerX, centerY } = params;
+
+  const groupOf = new Map<string, number>();
+  groups.forEach((group) => group.memberIds.forEach((id) => groupOf.set(id, group.index)));
 
   const positions = viewMode === 'focused' && focusedGraph
     ? buildFocusedLayout(nodes, focusedGraph, adjacency, centerX, centerY)
-    : buildOverviewLayout(nodes, adjacency, degreeMap, centerX, centerY);
+    : buildGroupedOverviewLayout(
+      // Only lay out groups' visible members; nodes outside any group join "Unlinked".
+      withUngroupedAsUnlinked(groups, nodes),
+      centerX,
+      centerY,
+    );
 
   return nodes.map((node) => {
     const role: MapNodeRole = focusedGraph
@@ -316,6 +339,9 @@ export function toRFNodes(params: {
     return {
       id: String(node.id),
       type: 'rahNode',
+      // Above every edge layer (toRFEdges uses zIndex 1 and 10), so an edge's wide
+      // invisible click target never covers a node and swallows clicks meant for it.
+      zIndex: NODE_Z_INDEX,
       position: positions.get(String(node.id)) ?? { x: centerX, y: centerY },
       data: {
         label: node.title || 'Untitled',
@@ -324,9 +350,31 @@ export function toRFNodes(params: {
         role,
         connectionCount: adjacency.get(node.id)?.size ?? 0,
         prominence: Math.min(1, (degreeMap.get(node.id) ?? node.edge_count ?? 0) / Math.max(...nodes.map((n) => degreeMap.get(n.id) ?? n.edge_count ?? 0), 1)),
+        group: groupOf.get(String(node.id)) ?? null,
       },
     };
   });
+}
+
+/**
+ * Restrict groups to the given nodes (dropping empty groups) and put any node that is in
+ * no group into the Unlinked group, so every node gets a place in the grouped layout.
+ */
+export function withUngroupedAsUnlinked(groups: MapGroup[], nodes: DbNode[]): MapGroup[] {
+  const visible = new Set(nodes.map((node) => String(node.id)));
+  const grouped = new Set<string>();
+  const result = groups
+    .map((group) => ({ ...group, memberIds: group.memberIds.filter((id) => visible.has(id)) }))
+    .filter((group) => group.memberIds.length > 0);
+  result.forEach((group) => group.memberIds.forEach((id) => grouped.add(id)));
+
+  const stray = nodes.map((node) => String(node.id)).filter((id) => !grouped.has(id));
+  if (stray.length > 0) {
+    const unlinked = result.find((group) => group.index === UNLINKED);
+    if (unlinked) unlinked.memberIds.push(...stray);
+    else result.push({ id: 'group-unlinked', index: UNLINKED, memberIds: stray, label: 'Unlinked' });
+  }
+  return result;
 }
 
 export function toRFEdges(params: {
