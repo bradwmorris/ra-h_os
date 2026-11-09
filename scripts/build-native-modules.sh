@@ -121,47 +121,39 @@ codesign_if_available() {
     codesign --force --timestamp --sign - "${extra_opts[@]}" "$target" >/dev/null 2>&1 || true
 }
 
-rebuild_better_sqlite3_for_arch() {
-  local arch="$1"
-  local output="$TMP_DIR/better_sqlite3.${arch}.node"
+# better-sqlite3 v13 is an N-API addon that ships per-platform prebuilds and loads
+# prebuilds/<platform>-<arch>.node at runtime (lib/binding.js), ahead of build/Release.
+# N-API binaries are Node-version independent, so no per-arch rebuild or lipo merge is
+# needed: the universal Node runtime picks darwin-arm64 or darwin-x64 by process.arch.
+# Keep only the two macOS prebuilds, verify their architectures, and sign them.
+stage_better_sqlite3_prebuilds() {
+  local module_dir="$APP_DIR/node_modules/better-sqlite3"
+  local prebuild_dir="$module_dir/prebuilds"
+  local pair arch_name expected file_path
 
-  echo "⚙️  Rebuilding better-sqlite3 for ${arch}"
+  for pair in "darwin-arm64:arm64" "darwin-x64:x86_64"; do
+    arch_name="${pair%%:*}"
+    expected="${pair##*:}"
+    file_path="$prebuild_dir/${arch_name}.node"
+    if [ ! -f "$file_path" ]; then
+      echo "❌ better-sqlite3 prebuild missing: $file_path" >&2
+      echo "   better-sqlite3 v13+ ships macOS prebuilds; check the installed version." >&2
+      exit 1
+    fi
+    if ! lipo -archs "$file_path" | grep -qw "$expected"; then
+      echo "❌ $file_path is not a ${expected} binary (lipo reports: $(lipo -archs "$file_path"))" >&2
+      exit 1
+    fi
+  done
 
-  rm -rf "$APP_DIR/node_modules/better-sqlite3/build"
+  # Drop non-macOS prebuilds and any stale node-gyp output so only the signed
+  # darwin binaries ship and the loader cannot fall back to an unsigned build.
+  find "$prebuild_dir" -type f -name '*.node' ! -name 'darwin-arm64.node' ! -name 'darwin-x64.node' -delete
+  rm -rf "$module_dir/build"
 
-  local arch_cmd
-  arch_cmd=($(arch_prefix "$arch"))
-
-  (
-    cd "$APP_DIR"
-    PATH="$NODE_RUNTIME_DIR/bin:$PATH" \
-    npm_config_build_from_source=true \
-    npm_config_fallback_to_build=false \
-    npm_config_arch="$arch" \
-    npm_config_target_arch="$arch" \
-    CFLAGS="-arch $arch" \
-    CXXFLAGS="-arch $arch" \
-    LDFLAGS="-arch $arch" \
-    "${arch_cmd[@]}" "$NODE_BIN" "$NPM_CLI" rebuild better-sqlite3 --build-from-source
-  )
-
-  if [ ! -f "$APP_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
-    echo "❌ Failed to build better-sqlite3 for ${arch}" >&2
-    exit 1
-  fi
-
-  cp "$APP_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node" "$output"
-}
-
-combine_better_sqlite3() {
-  local arm_file="$TMP_DIR/better_sqlite3.arm64.node"
-  local x64_file="$TMP_DIR/better_sqlite3.x86_64.node"
-  local target="$APP_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
-
-  lipo -create "$arm_file" "$x64_file" -output "$target"
-  codesign_if_available "$target"
-  rm -f "$APP_DIR/node_modules/better-sqlite3/build/Release/test_extension.node"
-  echo "✓ better-sqlite3 universal binary ready at $target"
+  codesign_if_available "$prebuild_dir/darwin-arm64.node"
+  codesign_if_available "$prebuild_dir/darwin-x64.node"
+  echo "✓ better-sqlite3 macOS prebuilds staged in $prebuild_dir"
 }
 
 build_sqlite_vec_for_arch() {
@@ -273,9 +265,7 @@ main() {
   ensure_sqlite_vec_source
   refresh_better_sqlite3_sources
 
-  rebuild_better_sqlite3_for_arch arm64
-  rebuild_better_sqlite3_for_arch x86_64
-  combine_better_sqlite3
+  stage_better_sqlite3_prebuilds
 
   build_sqlite_vec_for_arch arm64
   build_sqlite_vec_for_arch x86_64

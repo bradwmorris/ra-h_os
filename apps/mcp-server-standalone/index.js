@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-// Check Node version early — better-sqlite3 native bindings don't support bleeding-edge Node
+// Check Node version early — better-sqlite3 v13 (N-API) requires Node 22+
 const nodeVersion = parseInt(process.versions.node.split('.')[0], 10);
-if (nodeVersion >= 24) {
+if (nodeVersion < 22) {
   console.error(`[ra-h-mcp-server] ERROR: Node.js v${process.versions.node} is not supported.`);
-  console.error('[ra-h-mcp-server] better-sqlite3 requires Node 18-22 LTS. Install Node 22:');
-  console.error('[ra-h-mcp-server]   nvm install 22 && nvm use 22');
-  console.error('[ra-h-mcp-server]   or: brew install node@22');
+  console.error('[ra-h-mcp-server] Node 22 or newer is required. Install a current LTS:');
+  console.error('[ra-h-mcp-server]   nvm install --lts && nvm use --lts');
+  console.error('[ra-h-mcp-server]   or: brew install node');
   process.exit(1);
 }
 
@@ -19,7 +19,7 @@ try {
   console.error(`[ra-h-mcp-server] Node version: ${process.versions.node}`);
   console.error('[ra-h-mcp-server] This usually means the native bindings need rebuilding:');
   console.error('[ra-h-mcp-server]   npm rebuild better-sqlite3');
-  console.error('[ra-h-mcp-server] Or your Node version is too new. Use Node 18-22 LTS.');
+  console.error('[ra-h-mcp-server] If no prebuilt binary exists for your platform, install build tools (python3, make, a C++ compiler) and retry.');
   console.error('[ra-h-mcp-server] Original error:', err.message);
   process.exit(1);
 }

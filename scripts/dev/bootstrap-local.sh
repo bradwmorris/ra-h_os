@@ -11,10 +11,10 @@ log() {
   echo "[bootstrap-local] $1"
 }
 
-# Check Node.js version (require 20+)
+# Check Node.js version (require 22+)
 NODE_VERSION=$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1 || echo "0")
-if [ "$NODE_VERSION" -lt 20 ]; then
-  echo "Error: Node.js 20+ required (found v$NODE_VERSION or not installed)" >&2
+if [ "$NODE_VERSION" -lt 22 ]; then
+  echo "Error: Node.js 22+ required (found v$NODE_VERSION or not installed)" >&2
   echo "Install from: https://nodejs.org" >&2
   exit 1
 fi

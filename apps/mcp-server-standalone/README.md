@@ -49,7 +49,7 @@ Restart Claude fully. If you need to freeze behavior for debugging, pin an exact
 
 ## Requirements
 
-- Node.js 18-22 LTS recommended
+- Node.js 22 or newer (tested on 22, 24 and 26; better-sqlite3 v13 uses N-API, so new Node majors don't need a rebuild)
 - a RA-H database at the platform default path, created by `setup`, `init-db`, or the app
 
 ## Environment Variables

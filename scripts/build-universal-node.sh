@@ -8,7 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-NODE_VERSION="${NODE_VERSION:-20.11.0}"
+# Node 22+ is required (package.json engines, better-sqlite3 v13). Pin the current Active LTS;
+# keep the fallback in scripts/build-production.sh (write_version_file) in sync.
+NODE_VERSION="${NODE_VERSION:-24.22.2}"
 CACHE_ROOT="${NODE_CACHE_DIR:-$HOME/.cache/ra-h/node}"
 OUTPUT_ROOT="${NODE_OUTPUT_DIR:-$REPO_ROOT/dist/runtime/node-universal}"
 STAGING_ROOT="${NODE_STAGING_DIR:-$REPO_ROOT/dist/.staging/node-universal}"
