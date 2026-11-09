@@ -1,22 +1,26 @@
 "use client";
 
-import { memo } from 'react';
+import { memo, useCallback, useContext } from 'react';
 import { Handle, Position, useStore, type NodeProps, type Node, type ReactFlowState } from '@xyflow/react';
 import { groupColorVar, type RahNodeData } from './utils';
+import { CompactBelowZoomContext } from './labelZoom';
 import { getNodeIcon } from '@/utils/nodeIcons';
 
 type RahNodeType = Node<RahNodeData, 'rahNode'>;
 
-// Label level-of-detail: below this zoom, less prominent overview nodes show only their
-// icon so the hubs' labels stay readable. Boolean selector, so nodes re-render only when
-// the threshold is crossed.
-const COMPACT_BELOW_ZOOM = 1.15;
+// Label level-of-detail: when zoomed out past the fitted view, less prominent overview
+// nodes show only their icon so the hubs' labels stay readable. Hubs always keep labels.
 const HUB_PROMINENCE = 0.35;
-const zoomedOutSelector = (state: ReactFlowState) => state.transform[2] < COMPACT_BELOW_ZOOM;
 
 function RahNodeComponent({ data, selected }: NodeProps<RahNodeType>) {
   const { label, dbNode, role, prominence, group } = data;
   const isSelected = selected || role === 'selected';
+  const compactBelowZoom = useContext(CompactBelowZoomContext);
+  // Boolean selector: nodes re-render only when the threshold is crossed.
+  const zoomedOutSelector = useCallback(
+    (state: ReactFlowState) => state.transform[2] < compactBelowZoom,
+    [compactBelowZoom],
+  );
   const zoomedOut = useStore(zoomedOutSelector);
   const compact = zoomedOut && role === 'overview' && !isSelected && prominence < HUB_PROMINENCE;
   const sizeScale = role === 'selected'

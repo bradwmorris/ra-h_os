@@ -50,6 +50,7 @@ import {
 } from './map/utils';
 import { detectCommunities, UNLINKED } from './map/communities';
 import { useSpringLayout } from './map/useSpringLayout';
+import { CompactBelowZoomContext, FIT_LABEL_MARGIN } from './map/labelZoom';
 import type { Point } from './map/springLayout';
 import { useTheme } from '@/hooks/useTheme';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
@@ -154,6 +155,11 @@ function MapPaneInner({
   const reactFlowInstance = useReactFlow();
   const [theme] = useTheme();
   const reducedMotion = usePrefersReducedMotion();
+  // Labels show at the fitted (default) zoom and above; set after each camera fit.
+  const [compactBelowZoom, setCompactBelowZoom] = useState(0);
+  const rememberFittedZoom = useCallback(() => {
+    setCompactBelowZoom(reactFlowInstance.getZoom() * FIT_LABEL_MARGIN);
+  }, [reactFlowInstance]);
   const [storedLayout, setOverviewLayout] = usePersistentState<OverviewLayout>(OVERVIEW_LAYOUT_KEY, DEFAULT_OVERVIEW_LAYOUT);
   // Guard against stale or hand-edited storage values.
   const overviewLayout: OverviewLayout = isOverviewLayout(storedLayout) ? storedLayout : DEFAULT_OVERVIEW_LAYOUT;
@@ -506,10 +512,10 @@ function MapPaneInner({
       if (focusedGraph && selectedNodeId) {
         const selectedNode = layoutNodes.find((node) => node.id === String(selectedNodeId));
         if (selectedNode) {
-          reactFlowInstance.setCenter(selectedNode.position.x, selectedNode.position.y, {
+          void reactFlowInstance.setCenter(selectedNode.position.x, selectedNode.position.y, {
             duration: reducedMotion ? 0 : 420,
             zoom: 1.02,
-          });
+          }).then(rememberFittedZoom);
         }
         return;
       }
@@ -536,14 +542,14 @@ function MapPaneInner({
       });
       // Timeline date labels sit above the top lane.
       timelineTicks.forEach((tick) => include(tick.position.x - 40, tick.position.y, 80, NODE_APPROX_HEIGHT));
-      reactFlowInstance.fitBounds(
+      void reactFlowInstance.fitBounds(
         { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
         { padding: 0.18, duration: reducedMotion ? 0 : 420 },
-      );
+      ).then(rememberFittedZoom);
     }, 80);
 
     return () => window.clearTimeout(timeout);
-  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, selectedNodeId, timelineTicks]);
+  }, [focusedGraph, haloGroups, layoutNodes, loading, reactFlowInstance, reducedMotion, rememberFittedZoom, selectedNodeId, timelineTicks]);
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -676,8 +682,8 @@ function MapPaneInner({
   }, [springLayout]);
 
   const fitVisibleNodes = useCallback(() => {
-    reactFlowInstance.fitView({ padding: 0.2, duration: 260 });
-  }, [reactFlowInstance]);
+    void reactFlowInstance.fitView({ padding: 0.2, duration: 260 }).then(rememberFittedZoom);
+  }, [reactFlowInstance, rememberFittedZoom]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'transparent', overflow: 'hidden' }}>
@@ -744,6 +750,7 @@ function MapPaneInner({
           <div style={emptyState}>No nodes to display</div>
         ) : (
           <div className="rah-map-wrapper" style={{ width: '100%', height: '100%' }}>
+            <CompactBelowZoomContext.Provider value={compactBelowZoom}>
             <ReactFlow
               nodes={displayNodes}
               edges={displayEdges}
@@ -790,6 +797,7 @@ function MapPaneInner({
                 zoomable
               />
             </ReactFlow>
+            </CompactBelowZoomContext.Provider>
 
             <div style={floatingActions}>
               <button type="button" onClick={fitVisibleNodes} style={floatingButton} title="Fit visible nodes">
